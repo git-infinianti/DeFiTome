@@ -5,6 +5,45 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import IntegrityError
 from django.views.decorators.http import require_http_methods
+from django.core.mail import send_mail
+from django.conf import settings
+from django.urls import reverse
+from .models import EmailVerification
+from django.utils import timezone
+
+# Helper function to send verification email
+def send_verification_email(request, user):
+    """Send email verification link to the user"""
+    email_verification, created = EmailVerification.objects.get_or_create(user=user)
+    
+    # Generate verification link
+    verification_url = request.build_absolute_uri(
+        reverse('verify_email', kwargs={'token': email_verification.verification_token})
+    )
+    
+    # Send email
+    subject = 'Verify Your Email - DeFi Tome'
+    message = f"""
+    Hello {user.username},
+    
+    Thank you for registering with DeFi Tome!
+    
+    Please verify your email address by clicking the link below:
+    {verification_url}
+    
+    If you did not create an account, please ignore this email.
+    
+    Best regards,
+    The DeFi Tome Team
+    """
+    
+    send_mail(
+        subject,
+        message,
+        settings.DEFAULT_FROM_EMAIL,
+        [user.email],
+        fail_silently=False,
+    )
 
 # Create your views here.
 def register(request):
@@ -41,6 +80,14 @@ def register(request):
         # Create user with race condition handling
         try:
             user = User.objects.create_user(username=username, email=email, password=password)
+            
+            # Send verification email
+            try:
+                send_verification_email(request, user)
+                messages.info(request, 'A verification email has been sent to your email address. Please verify your email.')
+            except Exception as e:
+                # Log error but don't prevent registration
+                messages.warning(request, 'Account created but failed to send verification email. You can resend it from settings.')
             
             # Log the user in
             auth_login(request, user)
@@ -104,4 +151,50 @@ def logout(request):
 
 @login_required
 def settings(request):
-    return render(request, 'settings/index.html')
+    # Get or create email verification record
+    email_verification, created = EmailVerification.objects.get_or_create(user=request.user)
+    
+    context = {
+        'email_verification': email_verification,
+    }
+    return render(request, 'settings/index.html', context)
+
+
+def verify_email(request, token):
+    """Handle email verification via token"""
+    try:
+        email_verification = EmailVerification.objects.get(verification_token=token)
+        
+        if not email_verification.is_verified:
+            email_verification.is_verified = True
+            email_verification.verified_at = timezone.now()
+            email_verification.save()
+            messages.success(request, 'Your email has been successfully verified!')
+        else:
+            messages.info(request, 'Your email is already verified.')
+        
+        # Redirect to login if not authenticated, otherwise to home
+        if request.user.is_authenticated:
+            return redirect('home')
+        else:
+            return redirect('login')
+    except EmailVerification.DoesNotExist:
+        messages.error(request, 'Invalid verification link.')
+        return redirect('login')
+
+
+@login_required
+def resend_verification_email(request):
+    """Resend email verification link"""
+    email_verification, created = EmailVerification.objects.get_or_create(user=request.user)
+    
+    if email_verification.is_verified:
+        messages.info(request, 'Your email is already verified.')
+    else:
+        try:
+            send_verification_email(request, request.user)
+            messages.success(request, 'Verification email has been resent. Please check your inbox.')
+        except Exception as e:
+            messages.error(request, f'Failed to send verification email. Please try again later.')
+    
+    return redirect('settings')

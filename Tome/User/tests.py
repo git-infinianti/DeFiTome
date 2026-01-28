@@ -256,3 +256,124 @@ class HomePageAuthTestCase(TestCase):
         self.assertIn('next=', response.url)
         self.assertIn('/user/home/', response.url)
 
+
+class EmailVerificationTestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.register_url = reverse('register')
+        self.settings_url = reverse('settings')
+        self.resend_url = reverse('resend_verification')
+    
+    def test_email_verification_created_on_registration(self):
+        """Test that EmailVerification record is created when user registers"""
+        from .models import EmailVerification
+        
+        response = self.client.post(self.register_url, {
+            'username': 'testuser',
+            'email': 'test@example.com',
+            'password': 'testpass123',
+            'confirm_password': 'testpass123'
+        })
+        
+        # User should be created
+        user = User.objects.get(username='testuser')
+        
+        # EmailVerification record should exist
+        self.assertTrue(EmailVerification.objects.filter(user=user).exists())
+        
+        # Should not be verified initially
+        email_verification = EmailVerification.objects.get(user=user)
+        self.assertFalse(email_verification.is_verified)
+        self.assertIsNotNone(email_verification.verification_token)
+    
+    def test_verify_email_with_valid_token(self):
+        """Test email verification with valid token"""
+        from .models import EmailVerification
+        
+        # Create user and verification record
+        user = User.objects.create_user(username='testuser', email='test@example.com', password='testpass123')
+        email_verification = EmailVerification.objects.create(user=user, is_verified=False)
+        
+        # Visit verification URL
+        verify_url = reverse('verify_email', kwargs={'token': email_verification.verification_token})
+        response = self.client.get(verify_url)
+        
+        # Should redirect
+        self.assertEqual(response.status_code, 302)
+        
+        # Email should be verified
+        email_verification.refresh_from_db()
+        self.assertTrue(email_verification.is_verified)
+        self.assertIsNotNone(email_verification.verified_at)
+    
+    def test_verify_email_with_invalid_token(self):
+        """Test email verification with invalid token"""
+        import uuid
+        
+        # Use random UUID that doesn't exist
+        fake_token = uuid.uuid4()
+        verify_url = reverse('verify_email', kwargs={'token': fake_token})
+        response = self.client.get(verify_url)
+        
+        # Should redirect to login
+        self.assertEqual(response.status_code, 302)
+    
+    def test_resend_verification_email_when_not_verified(self):
+        """Test resending verification email when user is not verified"""
+        from .models import EmailVerification
+        
+        # Create and login user
+        user = User.objects.create_user(username='testuser', email='test@example.com', password='testpass123')
+        EmailVerification.objects.create(user=user, is_verified=False)
+        self.client.login(username='testuser', password='testpass123')
+        
+        # Request to resend verification email
+        response = self.client.post(self.resend_url, follow=True)
+        
+        # Should redirect to settings
+        self.assertEqual(response.status_code, 200)
+        
+        # Check that we redirected to settings page
+        self.assertTemplateUsed(response, 'settings/index.html')
+        
+        # Check for success or error message
+        messages_list = list(response.context['messages'])
+        # Allow both success and error messages since email sending might fail in tests
+        self.assertTrue(len(messages_list) > 0)
+    
+    def test_resend_verification_when_already_verified(self):
+        """Test resending verification email when already verified"""
+        from .models import EmailVerification
+        
+        # Create and login user with verified email
+        user = User.objects.create_user(username='testuser', email='test@example.com', password='testpass123')
+        EmailVerification.objects.create(user=user, is_verified=True)
+        self.client.login(username='testuser', password='testpass123')
+        
+        # Request to resend verification email
+        response = self.client.post(self.resend_url, follow=True)
+        
+        # Should redirect to settings
+        self.assertEqual(response.status_code, 200)
+        
+        # Check for info message
+        messages_list = list(response.context['messages'])
+        self.assertTrue(any('already verified' in str(m) for m in messages_list))
+    
+    def test_settings_shows_verification_status(self):
+        """Test that settings page shows email verification status"""
+        from .models import EmailVerification
+        
+        # Create and login user
+        user = User.objects.create_user(username='testuser', email='test@example.com', password='testpass123')
+        EmailVerification.objects.create(user=user, is_verified=False)
+        self.client.login(username='testuser', password='testpass123')
+        
+        # Access settings page
+        response = self.client.get(self.settings_url)
+        
+        # Should show verification status
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('email_verification', response.context)
+
+

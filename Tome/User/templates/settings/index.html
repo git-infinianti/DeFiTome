@@ -157,6 +157,36 @@
         .logout-form button:hover {
             color: #3b82f6;
         }
+        
+        .message {
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+        
+        .message.error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+        
+        .message.success {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #86efac;
+        }
+        
+        .message.info {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #93c5fd;
+        }
+        
+        .message.warning {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: #fcd34d;
+        }
     </style>
 </head>
 <body>
@@ -175,13 +205,44 @@
         <div class="settings-container">
             <h1>Settings</h1>
             
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="message {% if message.tags %}{{ message.tags }}{% endif %}" style="margin-bottom: 1rem; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.9rem;">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+            
             <div class="settings-section">
                 <h2>Account Information</h2>
                 <div class="user-info">
                     <p><strong>Username:</strong> {{ user.username }}</p>
                     <p><strong>Email:</strong> {{ user.email }}</p>
                     <p><strong>Account Created:</strong> {{ user.date_joined|date:"F d, Y" }}</p>
+                    {% if email_verification %}
+                        <p>
+                            <strong>Email Verified:</strong> 
+                            {% if email_verification.is_verified %}
+                                <span style="color: #86efac;">✓ Verified</span>
+                                {% if email_verification.verified_at %}
+                                    ({{ email_verification.verified_at|date:"F d, Y" }})
+                                {% endif %}
+                            {% else %}
+                                <span style="color: #fca5a5;">✗ Not Verified</span>
+                            {% endif %}
+                        </p>
+                    {% endif %}
                 </div>
+                {% if email_verification and not email_verification.is_verified %}
+                    <div style="margin-top: 1rem;">
+                        <form method="post" action="{% url 'resend_verification' %}" style="display: inline;">
+                            {% csrf_token %}
+                            <button type="submit" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                                Resend Verification Email
+                            </button>
+                        </form>
+                    </div>
+                {% endif %}
             </div>
             
             <div class="settings-section">
