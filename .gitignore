@@ -1,5 +1,6 @@
 .env
 .venv
+.json
 .ipynb
 db.sqlite3
 migrations/
