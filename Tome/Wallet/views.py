@@ -6,11 +6,8 @@ from .models import UserWallet
 @login_required
 def portfolio(request):
     """Display user's wallet portfolio"""
-    # Get the user's wallet if it exists
-    try:
-        user_wallet = UserWallet.objects.get(user=request.user)
-    except UserWallet.DoesNotExist:
-        user_wallet = None
+    # Get the user's wallet if it exists using the OneToOne relationship
+    user_wallet = getattr(request.user, 'user_wallet', None)
     
     context = {
         'user_wallet': user_wallet,

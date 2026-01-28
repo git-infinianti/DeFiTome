@@ -294,7 +294,7 @@
                 <a href="{% url 'portfolio' %}">Portfolio</a>
                 <a href="#docs">Docs</a>
                 <div class="account-dropdown">
-                    <a href="/user/settings" role="button" aria-haspopup="true" aria-expanded="false">Account</a>
+                    <a href="{% url 'settings' %}" role="button" aria-haspopup="true" aria-expanded="false">Account</a>
                     <div class="account-dropdown-content" role="menu">
                         <a href="{% url 'settings' %}" role="menuitem">Settings</a>
                         <form method="post" action="{% url 'logout' %}" class="logout-form">
