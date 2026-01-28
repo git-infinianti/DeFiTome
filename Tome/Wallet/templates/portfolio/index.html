@@ -262,8 +262,49 @@
             color: #93c5fd;
         }
         
+        .alert-error {
+            background: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+        
         .alert-icon {
             margin-right: 0.5rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-group label {
+            display: block;
+            color: #94a3b8;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+        
+        .form-group input {
+            width: 100%;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 8px;
+            padding: 0.75rem;
+            color: #e2e8f0;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            background: rgba(15, 23, 42, 0.7);
+        }
+        
+        .form-group small {
+            display: block;
+            color: #64748b;
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
         }
         
         @media (max-width: 768px) {
@@ -314,12 +355,12 @@
             <h2>Your Wallet</h2>
             <div class="alert">
                 <span class="alert-icon">ℹ️</span>
-                Your wallet information is securely stored and encrypted.
+                Your wallet information is stored in the database.
             </div>
             <div class="wallet-info">
                 <div class="wallet-field">
-                    <label>Wallet ID:</label>
-                    <div class="value">{{ user_wallet.id }}</div>
+                    <label>Wallet Name:</label>
+                    <div class="value">{{ user_wallet.name }}</div>
                 </div>
                 <div class="wallet-field">
                     <label>Created:</label>
@@ -359,12 +400,38 @@
         </div>
         {% else %}
         <div class="card">
-            <div class="empty-state">
-                <div class="empty-state-icon">💼</div>
-                <p>You don't have a wallet yet</p>
-                <button class="btn">Create Your First Wallet</button>
-            </div>
+            <h2>Create Your Wallet</h2>
+            {% if messages %}
+                {% for message in messages %}
+                <div class="alert{% if message.tags == 'error' %} alert-error{% endif %}">
+                    <span class="alert-icon">{% if message.tags == 'error' %}⚠️{% else %}ℹ️{% endif %}</span>
+                    {{ message }}
+                </div>
+                {% endfor %}
+            {% endif %}
+            <form method="post" action="{% url 'portfolio' %}">
+                {% csrf_token %}
+                <div class="form-group">
+                    <label for="wallet_name">Wallet Name *</label>
+                    <input type="text" id="wallet_name" name="wallet_name" required maxlength="100" placeholder="e.g., My Main Wallet">
+                </div>
+                <div class="form-group">
+                    <label for="passphrase">Passphrase (Optional)</label>
+                    <input type="password" id="passphrase" name="passphrase" maxlength="256" placeholder="Leave blank for no passphrase" autocomplete="new-password">
+                    <small>An optional passphrase adds an extra layer of security to your wallet</small>
+                </div>
+                <button type="submit" class="btn" id="createWalletBtn">Create Wallet</button>
+            </form>
         </div>
+        
+        <script>
+            // Prevent double submission
+            document.querySelector('form').addEventListener('submit', function() {
+                const btn = document.getElementById('createWalletBtn');
+                btn.disabled = true;
+                btn.textContent = 'Creating...';
+            });
+        </script>
         
         <div class="card">
             <h2>Getting Started</h2>
