@@ -7,6 +7,10 @@ from django.db import IntegrityError
 
 # Create your views here.
 def register(request):
+    # Redirect if user is already logged in
+    if request.user.is_authenticated:
+        return redirect('home')
+    
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()
         email = request.POST.get('email', '').strip()
@@ -50,6 +54,10 @@ def register(request):
 
 
 def login(request):
+    # Redirect if user is already logged in
+    if request.user.is_authenticated:
+        return redirect('home')
+    
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()
         password = request.POST.get('password', '')

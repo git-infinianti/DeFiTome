@@ -13,6 +13,40 @@ class RegistrationTestCase(TestCase):
         response = self.client.get(self.register_url)
         self.assertEqual(response.status_code, 200)
     
+    def test_registration_redirects_logged_in_users(self):
+        """Test that logged-in users are redirected from registration page"""
+        # Create and log in a user
+        user = User.objects.create_user(username='loggedin', email='logged@example.com', password='pass123')
+        self.client.login(username='loggedin', password='pass123')
+        
+        # Try to access registration page
+        response = self.client.get(self.register_url)
+        
+        # Should redirect to home
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, reverse('home'))
+    
+    def test_registration_post_redirects_logged_in_users(self):
+        """Test that logged-in users cannot POST to registration page"""
+        # Create and log in a user
+        user = User.objects.create_user(username='loggedin', email='logged@example.com', password='pass123')
+        self.client.login(username='loggedin', password='pass123')
+        
+        # Try to post to registration page
+        response = self.client.post(self.register_url, {
+            'username': 'newuser',
+            'email': 'new@example.com',
+            'password': 'testpass123',
+            'confirm_password': 'testpass123'
+        })
+        
+        # Should redirect to home
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, reverse('home'))
+        
+        # New user should not be created
+        self.assertFalse(User.objects.filter(username='newuser').exists())
+    
     def test_successful_registration(self):
         """Test that a user can successfully register"""
         response = self.client.post(self.register_url, {
@@ -95,6 +129,33 @@ class LoginTestCase(TestCase):
         """Test that the login page loads successfully"""
         response = self.client.get(self.login_url)
         self.assertEqual(response.status_code, 200)
+    
+    def test_login_redirects_logged_in_users(self):
+        """Test that logged-in users are redirected from login page"""
+        # Login the test user
+        self.client.login(username='testuser', password='testpass123')
+        
+        # Try to access login page
+        response = self.client.get(self.login_url)
+        
+        # Should redirect to home
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, reverse('home'))
+    
+    def test_login_post_redirects_logged_in_users(self):
+        """Test that logged-in users cannot POST to login page"""
+        # Login the test user
+        self.client.login(username='testuser', password='testpass123')
+        
+        # Try to post to login page
+        response = self.client.post(self.login_url, {
+            'username': 'testuser',
+            'password': 'testpass123'
+        })
+        
+        # Should redirect to home
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, reverse('home'))
     
     def test_successful_login(self):
         """Test that a user can successfully login with correct credentials"""
