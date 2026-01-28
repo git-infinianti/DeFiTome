@@ -127,6 +127,9 @@ STATIC_URL = 'static/'
 LOGIN_URL = '/user/login/'
 
 # Email settings
+# Using console backend for development - emails will be printed to console
+# For production, change EMAIL_BACKEND to 'django.core.mail.backends.smtp.EmailBackend'
+# and configure the settings below via environment variables
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'  # For development, prints emails to console
 EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
 EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)

@@ -17,7 +17,7 @@ class UserWallet(models.Model):
 class EmailVerification(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='email_verification')
     is_verified = models.BooleanField(default=False)
-    verification_token = models.UUIDField(default=uuid.uuid4, editable=False)
+    verification_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     verified_at = models.DateTimeField(null=True, blank=True)
     

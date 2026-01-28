@@ -13,7 +13,12 @@ from django.utils import timezone
 
 # Helper function to send verification email
 def send_verification_email(request, user):
-    """Send email verification link to the user"""
+    """Send email verification link to the user
+    
+    Note: This function uses get_or_create which means the verification token 
+    remains the same across multiple calls for the same user. The token is only 
+    created once when the EmailVerification record is first created.
+    """
     email_verification, created = EmailVerification.objects.get_or_create(user=user)
     
     # Generate verification link
@@ -87,6 +92,9 @@ def register(request):
                 messages.info(request, 'A verification email has been sent to your email address. Please verify your email.')
             except Exception as e:
                 # Log error but don't prevent registration
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f'Failed to send verification email to {user.email}: {str(e)}')
                 messages.warning(request, 'Account created but failed to send verification email. You can resend it from settings.')
             
             # Log the user in
@@ -184,6 +192,7 @@ def verify_email(request, token):
 
 
 @login_required
+@require_http_methods(["POST"])
 def resend_verification_email(request):
     """Resend email verification link"""
     email_verification, created = EmailVerification.objects.get_or_create(user=request.user)
@@ -195,6 +204,9 @@ def resend_verification_email(request):
             send_verification_email(request, request.user)
             messages.success(request, 'Verification email has been resent. Please check your inbox.')
         except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f'Failed to send verification email to {request.user.email}: {str(e)}')
             messages.error(request, f'Failed to send verification email. Please try again later.')
     
     return redirect('settings')
