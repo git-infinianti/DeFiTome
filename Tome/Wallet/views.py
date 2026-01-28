@@ -26,15 +26,13 @@ def portfolio(request):
                 messages.error(request, 'Wallet name is required.')
                 return render(request, 'portfolio/index.html', {'user_wallet': user_wallet})
             
+            # Validate wallet name length
+            if len(wallet_name) > 100:
+                messages.error(request, 'Wallet name must be 100 characters or less.')
+                return render(request, 'portfolio/index.html', {'user_wallet': user_wallet})
+            
             # Start by generating new entropy
             entropy = BIP39Entropy.generate(128)
-            
-            # Initialize and create wallet object with passphrase
-            wallet = Wallet(entropy, passphrase=passphrase)
-            hdwallet = wallet.get_wallet()
-            
-            # Get the first address
-            address = hdwallet.address()
             
             # Save the new wallet to the database
             user_wallet = UserWallet.objects.create(
