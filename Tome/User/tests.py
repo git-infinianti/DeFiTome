@@ -156,3 +156,42 @@ class LoginTestCase(TestCase):
         # Should stay on login page with error message
         self.assertEqual(response.status_code, 200)
 
+class HomePageAuthTestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.home_url = reverse('home')
+        self.login_url = reverse('login')
+        # Create a test user
+        self.test_user = User.objects.create_user(
+            username='testuser',
+            email='test@example.com',
+            password='testpass123'
+        )
+    
+    def test_home_page_requires_login(self):
+        """Test that home page redirects unauthenticated users to login"""
+        response = self.client.get(self.home_url)
+        
+        # Should redirect to login page
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/user/login/', response.url)
+    
+    def test_home_page_accessible_when_logged_in(self):
+        """Test that home page is accessible to logged-in users"""
+        # Login the user
+        self.client.login(username='testuser', password='testpass123')
+        
+        response = self.client.get(self.home_url)
+        
+        # Should successfully load the home page
+        self.assertEqual(response.status_code, 200)
+    
+    def test_home_page_redirect_preserves_next_parameter(self):
+        """Test that redirect to login includes next parameter"""
+        response = self.client.get(self.home_url)
+        
+        # Should redirect to login with next parameter
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('next=', response.url)
+        self.assertIn('/user/home/', response.url)
+

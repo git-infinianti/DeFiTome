@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect
 from django.contrib.auth.models import User
 from django.contrib.auth import login as auth_login, authenticate
+from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import IntegrityError
 
@@ -79,5 +80,6 @@ def login(request):
     return render(request, 'login/index.html')
 
 
+@login_required
 def home(request):
     return render(request, 'home/index.html')
