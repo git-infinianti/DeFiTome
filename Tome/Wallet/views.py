@@ -1,9 +1,9 @@
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
+from django.contrib import messages
 from .models import UserWallet
 from .wallet import Wallet
 from hdwallet.entropies import BIP39Entropy
-
 
 
 # Create your views here.
@@ -12,23 +12,41 @@ def portfolio(request):
     """Display user's wallet portfolio"""
     # Get the user's wallet if it exists using the OneToOne relationship
     user_wallet = getattr(request.user, 'user_wallet', None)
-    # Create wallet on first access
+    
+    # Create wallet on form submission
     if request.method == 'POST':
         # Create wallet if it doesn't exist
         if not user_wallet:
+            # Get wallet name and passphrase from form
+            wallet_name = request.POST.get('wallet_name', '').strip()
+            passphrase = request.POST.get('passphrase', '').strip()
+            
+            # Validate wallet name
+            if not wallet_name:
+                messages.error(request, 'Wallet name is required.')
+                return render(request, 'portfolio/index.html', {'user_wallet': user_wallet})
+            
             # Start by generating new entropy
             entropy = BIP39Entropy.generate(128)
-            # Initialize and create wallet object
-            wallet = Wallet(entropy)
+            
+            # Initialize and create wallet object with passphrase
+            wallet = Wallet(entropy, passphrase=passphrase)
             hdwallet = wallet.get_wallet()
+            
             # Get the first address
             address = hdwallet.address()
+            
             # Save the new wallet to the database
             user_wallet = UserWallet.objects.create(
                 user=request.user,
+                name=wallet_name,
                 entropy=entropy,
-                passphrase=''  # Empty passphrase for now
+                passphrase=passphrase
             )
+            
+            messages.success(request, f'Wallet "{wallet_name}" created successfully!')
+            return redirect('portfolio')
+    
     context = {
         'user_wallet': user_wallet,
     }
