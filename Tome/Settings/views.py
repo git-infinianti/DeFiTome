@@ -6,7 +6,6 @@ from django.core.mail import send_mail
 from django.conf import settings as django_settings
 from django.urls import reverse
 from User.models import EmailVerification
-from django.utils import timezone
 
 
 # Helper function to send verification email
