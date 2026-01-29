@@ -100,28 +100,6 @@
             color: var(--accent-primary);
         }
         
-        .logout-form {
-            margin: 0;
-            padding: 0;
-            display: inline;
-        }
-        
-        .logout-form button {
-            background: none;
-            border: none;
-            color: var(--text-secondary);
-            text-decoration: none;
-            margin-left: 2rem;
-            cursor: pointer;
-            transition: color 0.3s;
-            font-family: inherit;
-            font-size: inherit;
-        }
-        
-        .logout-form button:hover {
-            color: var(--accent-primary);
-        }
-        
         .page-title {
             font-size: 2.5rem;
             margin-bottom: 1rem;
@@ -354,10 +332,6 @@
                 <a href="{% url 'portfolio' %}">Portfolio</a>
                 <a href="{% url 'api_docs' %}">Docs</a>
                 <a href="{% url 'settings' %}">Settings</a>
-                <form method="post" action="{% url 'logout' %}" class="logout-form">
-                    {% csrf_token %}
-                    <button type="submit">Logout</button>
-                </form>
             </nav>
         </header>
         
