@@ -173,6 +173,11 @@
             color: #cbd5e1;
         }
         
+        .news-item .price-info {
+            color: #60a5fa;
+            margin-top: 0.5rem;
+        }
+        
         @media (max-width: 768px) {
             .main-content {
                 grid-template-columns: 1fr;
@@ -231,22 +236,22 @@
             </section>
             
             <section class="news-section">
-                <h2>Latest News</h2>
-                <div class="news-item">
-                    <h4>Market Update</h4>
-                    <div class="date">Today at 2:30 PM</div>
-                    <p>Bitcoin reaches new quarterly high amidst positive market sentiment.</p>
-                </div>
-                <div class="news-item">
-                    <h4>Protocol Alert</h4>
-                    <div class="date">Yesterday</div>
-                    <p>Major DeFi protocol releases governance upgrade v3.</p>
-                </div>
-                <div class="news-item">
-                    <h4>Industry News</h4>
-                    <div class="date">2 days ago</div>
-                    <p>New regulations introduced for cryptocurrency derivatives trading.</p>
-                </div>
+                <h2>Recent Marketplace Listings</h2>
+                {% if listings %}
+                    {% for listing in listings %}
+                    <div class="news-item">
+                        <h4>{{ listing.item.title }}</h4>
+                        <div class="date">{{ listing.listing_date|date:"M d, Y" }} by {{ listing.seller.username }}</div>
+                        <p>{{ listing.item.description|truncatewords:20 }}</p>
+                        <p class="price-info">Price: {{ listing.price }} | Available: {{ listing.quantity_available }}</p>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="news-item">
+                        <h4>No Listings Yet</h4>
+                        <p>Be the first to create a marketplace listing!</p>
+                    </div>
+                {% endif %}
             </section>
         </div>
     </div>
