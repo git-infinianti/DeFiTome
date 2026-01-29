@@ -5,6 +5,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DeFi Tome - Receive Funds</title>
     <style>
+        :root, .theme-dark, .theme- {
+            --bg-gradient-start: #0f172a;
+            --bg-gradient-end: #1e293b;
+            --text-primary: #e2e8f0;
+            --text-secondary: #cbd5e1;
+            --text-muted: #94a3b8;
+            --border-color: rgba(148, 163, 184, 0.2);
+            --card-bg: rgba(30, 41, 59, 0.8);
+            --card-bg-hover: rgba(59, 130, 246, 0.05);
+            --accent-primary: #3b82f6;
+            --accent-secondary: #8b5cf6;
+            --accent-light: #60a5fa;
+            --input-bg: rgba(15, 23, 42, 0.5);
+            --input-focus-bg: rgba(15, 23, 42, 0.7);
+            --error-bg: rgba(239, 68, 68, 0.1);
+            --error-text: #fca5a5;
+        }
+        
+        .theme-light {
+            --bg-gradient-start: #f8fafc;
+            --bg-gradient-end: #e2e8f0;
+            --text-primary: #0f172a;
+            --text-secondary: #334155;
+            --text-muted: #64748b;
+            --border-color: rgba(15, 23, 42, 0.2);
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --card-bg-hover: rgba(59, 130, 246, 0.05);
+            --accent-primary: #3b82f6;
+            --accent-secondary: #8b5cf6;
+            --accent-light: #2563eb;
+            --input-bg: rgba(255, 255, 255, 0.7);
+            --input-focus-bg: rgba(255, 255, 255, 0.9);
+            --error-bg: rgba(239, 68, 68, 0.1);
+            --error-text: #dc2626;
+        }
+        
         * {
             margin: 0;
             padding: 0;
@@ -13,8 +49,8 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            color: #e2e8f0;
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            color: var(--text-primary);
             min-height: 100vh;
         }
         
@@ -30,26 +66,26 @@
             align-items: center;
             margin-bottom: 3rem;
             padding-bottom: 2rem;
-            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+            border-bottom: 1px solid var(--border-color);
         }
         
         .logo {
             font-size: 1.8rem;
             font-weight: bold;
-            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
         
         nav a {
-            color: #cbd5e1;
+            color: var(--text-secondary);
             text-decoration: none;
             margin-left: 2rem;
             transition: color 0.3s;
         }
         
         nav a:hover {
-            color: #3b82f6;
+            color: var(--accent-primary);
         }
         
         .logout-form {
@@ -61,7 +97,7 @@
         .logout-form button {
             background: none;
             border: none;
-            color: #cbd5e1;
+            color: var(--text-secondary);
             text-decoration: none;
             margin-left: 2rem;
             cursor: pointer;
@@ -71,33 +107,33 @@
         }
         
         .logout-form button:hover {
-            color: #3b82f6;
+            color: var(--accent-primary);
         }
         
         .page-title {
             font-size: 2.5rem;
             margin-bottom: 1rem;
-            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            background: linear-gradient(135deg, var(--accent-light), #a78bfa);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
         
         .page-subtitle {
             font-size: 1.1rem;
-            color: #94a3b8;
+            color: var(--text-muted);
             margin-bottom: 3rem;
         }
         
         .card {
-            background: rgba(30, 41, 59, 0.8);
-            border: 1px solid rgba(148, 163, 184, 0.2);
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 2rem;
             margin-bottom: 2rem;
         }
         
         .card h2 {
-            color: #60a5fa;
+            color: var(--accent-light);
             margin-bottom: 1.5rem;
             font-size: 1.5rem;
         }
@@ -116,7 +152,7 @@
         }
         
         .address-display {
-            background: rgba(15, 23, 42, 0.7);
+            background: var(--input-focus-bg);
             border: 2px solid rgba(59, 130, 246, 0.3);
             border-radius: 12px;
             padding: 1.5rem;
@@ -124,7 +160,7 @@
         }
         
         .address-label {
-            color: #94a3b8;
+            color: var(--text-muted);
             font-size: 0.9rem;
             margin-bottom: 0.75rem;
         }
@@ -132,14 +168,14 @@
         .address-value {
             font-family: 'Courier New', monospace;
             font-size: 1.1rem;
-            color: #60a5fa;
+            color: var(--accent-light);
             word-break: break-all;
             margin-bottom: 1rem;
         }
         
         .qr-placeholder {
-            background: rgba(30, 41, 59, 0.8);
-            border: 1px solid rgba(148, 163, 184, 0.2);
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 2rem;
             text-align: center;
@@ -153,7 +189,7 @@
         
         .btn {
             display: inline-block;
-            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
             color: white;
             padding: 0.75rem 2rem;
             border-radius: 8px;
@@ -201,7 +237,7 @@
         }
     </style>
 </head>
-<body>
+<body class="theme-{{ user_theme }}">
     <div class="container">
         <header>
             <div class="logo">DeFi Tome</div>
