@@ -11,10 +11,59 @@
             box-sizing: border-box;
         }
         
+        /* Theme variables */
+        body.theme-default, body.theme-dark {
+            --bg-gradient-start: #0f172a;
+            --bg-gradient-end: #1e293b;
+            --text-primary: #e2e8f0;
+            --text-secondary: #cbd5e1;
+            --text-muted: #94a3b8;
+            --border-color: rgba(148, 163, 184, 0.2);
+            --card-bg: rgba(30, 41, 59, 0.8);
+            --card-bg-hover: rgba(59, 130, 246, 0.05);
+            --accent-primary: #3b82f6;
+            --accent-secondary: #8b5cf6;
+            --accent-light: #60a5fa;
+            --verified-color: #86efac;
+            --error-color: #fca5a5;
+            --success-bg: rgba(34, 197, 94, 0.1);
+            --success-border: rgba(34, 197, 94, 0.3);
+            --error-bg: rgba(239, 68, 68, 0.1);
+            --error-border: rgba(239, 68, 68, 0.3);
+            --info-bg: rgba(59, 130, 246, 0.1);
+            --info-border: rgba(59, 130, 246, 0.3);
+            --warning-bg: rgba(245, 158, 11, 0.1);
+            --warning-border: rgba(245, 158, 11, 0.3);
+        }
+        
+        body.theme-light {
+            --bg-gradient-start: #f8fafc;
+            --bg-gradient-end: #e2e8f0;
+            --text-primary: #0f172a;
+            --text-secondary: #334155;
+            --text-muted: #64748b;
+            --border-color: rgba(148, 163, 184, 0.3);
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --card-bg-hover: rgba(59, 130, 246, 0.05);
+            --accent-primary: #3b82f6;
+            --accent-secondary: #8b5cf6;
+            --accent-light: #2563eb;
+            --verified-color: #16a34a;
+            --error-color: #dc2626;
+            --success-bg: rgba(34, 197, 94, 0.1);
+            --success-border: rgba(34, 197, 94, 0.5);
+            --error-bg: rgba(239, 68, 68, 0.1);
+            --error-border: rgba(239, 68, 68, 0.5);
+            --info-bg: rgba(59, 130, 246, 0.1);
+            --info-border: rgba(59, 130, 246, 0.5);
+            --warning-bg: rgba(245, 158, 11, 0.1);
+            --warning-border: rgba(245, 158, 11, 0.5);
+        }
+        
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            color: #e2e8f0;
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            color: var(--text-primary);
             min-height: 100vh;
         }
         
@@ -30,26 +79,26 @@
             align-items: center;
             margin-bottom: 3rem;
             padding-bottom: 2rem;
-            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+            border-bottom: 1px solid var(--border-color);
         }
         
         .logo {
             font-size: 1.8rem;
             font-weight: bold;
-            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
         
         nav a {
-            color: #cbd5e1;
+            color: var(--text-secondary);
             text-decoration: none;
             margin-left: 2rem;
             transition: color 0.3s;
         }
         
         nav a:hover {
-            color: #3b82f6;
+            color: var(--accent-primary);
         }
         
         .settings-container {
@@ -60,21 +109,21 @@
         h1 {
             font-size: 2.5rem;
             margin-bottom: 2rem;
-            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            background: linear-gradient(135deg, var(--accent-light), #a78bfa);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
         
         .settings-section {
-            background: rgba(30, 41, 59, 0.8);
-            border: 1px solid rgba(148, 163, 184, 0.2);
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 2rem;
             margin-bottom: 1.5rem;
         }
         
         .settings-section h2 {
-            color: #60a5fa;
+            color: var(--accent-light);
             margin-bottom: 1.5rem;
             font-size: 1.5rem;
         }
@@ -84,7 +133,7 @@
             justify-content: space-between;
             align-items: center;
             padding: 1rem 0;
-            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+            border-bottom: 1px solid var(--border-color);
         }
         
         .settings-item:last-child {
@@ -92,18 +141,18 @@
         }
         
         .settings-item label {
-            color: #cbd5e1;
+            color: var(--text-secondary);
             font-weight: 500;
         }
         
         .settings-item .description {
             font-size: 0.875rem;
-            color: #94a3b8;
+            color: var(--text-muted);
             margin-top: 0.25rem;
         }
         
         button, .btn {
-            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
             color: white;
             border: none;
             padding: 0.75rem 1.5rem;
@@ -121,7 +170,7 @@
         }
         
         .user-info {
-            background: rgba(59, 130, 246, 0.1);
+            background: var(--info-bg);
             padding: 1rem;
             border-radius: 8px;
             margin-bottom: 1rem;
@@ -129,11 +178,11 @@
         
         .user-info p {
             margin: 0.5rem 0;
-            color: #cbd5e1;
+            color: var(--text-secondary);
         }
         
         .user-info strong {
-            color: #60a5fa;
+            color: var(--accent-light);
         }
         
         .logout-form {
@@ -145,7 +194,7 @@
         .logout-form button {
             background: none;
             border: none;
-            color: #cbd5e1;
+            color: var(--text-secondary);
             text-decoration: none;
             margin-left: 2rem;
             cursor: pointer;
@@ -155,41 +204,97 @@
         }
         
         .logout-form button:hover {
-            color: #3b82f6;
+            color: var(--accent-primary);
         }
         
         .message {
             padding: 0.75rem 1rem;
             border-radius: 8px;
             font-size: 0.9rem;
+            margin-bottom: 1rem;
         }
         
         .message.error {
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            color: #fca5a5;
+            background: var(--error-bg);
+            border: 1px solid var(--error-border);
+            color: var(--error-color);
         }
         
         .message.success {
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.3);
-            color: #86efac;
+            background: var(--success-bg);
+            border: 1px solid var(--success-border);
+            color: var(--verified-color);
         }
         
         .message.info {
-            background: rgba(59, 130, 246, 0.1);
-            border: 1px solid rgba(59, 130, 246, 0.3);
+            background: var(--info-bg);
+            border: 1px solid var(--info-border);
             color: #93c5fd;
         }
         
         .message.warning {
-            background: rgba(245, 158, 11, 0.1);
-            border: 1px solid rgba(245, 158, 11, 0.3);
+            background: var(--warning-bg);
+            border: 1px solid var(--warning-border);
             color: #fcd34d;
+        }
+        
+        /* Theme selector styles */
+        .theme-selector {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        
+        .theme-option {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .theme-option input[type="radio"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: var(--accent-primary);
+        }
+        
+        .theme-option label {
+            cursor: pointer;
+            color: var(--text-secondary);
+            margin: 0;
+        }
+        
+        .theme-preview {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            border: 2px solid var(--border-color);
+            display: inline-block;
+            vertical-align: middle;
+        }
+        
+        .theme-preview.default {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        }
+        
+        .theme-preview.light {
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        }
+        
+        .theme-preview.dark {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        }
+        
+        .verified-status {
+            color: var(--verified-color);
+        }
+        
+        .unverified-status {
+            color: var(--error-color);
         }
     </style>
 </head>
-<body>
+<body class="theme-{{ user_theme }}">
     <div class="container">
         <header>
             <div class="logo">DeFi Tome</div>
@@ -223,12 +328,12 @@
                         <p>
                             <strong>Email Verified:</strong> 
                             {% if email_verification.is_verified %}
-                                <span style="color: #86efac;">✓ Verified</span>
+                                <span class="verified-status">✓ Verified</span>
                                 {% if email_verification.verified_at %}
                                     ({{ email_verification.verified_at|date:"F d, Y" }})
                                 {% endif %}
                             {% else %}
-                                <span style="color: #fca5a5;">✗ Not Verified</span>
+                                <span class="unverified-status">✗ Not Verified</span>
                             {% endif %}
                         </p>
                     {% endif %}
@@ -249,17 +354,40 @@
                 <h2>Preferences</h2>
                 <div class="settings-item">
                     <div>
+                        <label>Theme</label>
+                        <div class="description">Customize your interface appearance</div>
+                    </div>
+                    <form method="post" action="{% url 'change_theme' %}" class="theme-selector">
+                        {% csrf_token %}
+                        <div class="theme-option">
+                            <input type="radio" id="theme-default" name="theme" value="default" 
+                                   {% if user_profile.theme == 'default' %}checked{% endif %}
+                                   onchange="this.form.submit()">
+                            <span class="theme-preview default"></span>
+                            <label for="theme-default">Default</label>
+                        </div>
+                        <div class="theme-option">
+                            <input type="radio" id="theme-light" name="theme" value="light" 
+                                   {% if user_profile.theme == 'light' %}checked{% endif %}
+                                   onchange="this.form.submit()">
+                            <span class="theme-preview light"></span>
+                            <label for="theme-light">Light</label>
+                        </div>
+                        <div class="theme-option">
+                            <input type="radio" id="theme-dark" name="theme" value="dark" 
+                                   {% if user_profile.theme == 'dark' %}checked{% endif %}
+                                   onchange="this.form.submit()">
+                            <span class="theme-preview dark"></span>
+                            <label for="theme-dark">Dark</label>
+                        </div>
+                    </form>
+                </div>
+                <div class="settings-item">
+                    <div>
                         <label>Email Notifications</label>
                         <div class="description">Receive updates about your portfolio</div>
                     </div>
                     <button>Configure</button>
-                </div>
-                <div class="settings-item">
-                    <div>
-                        <label>Theme</label>
-                        <div class="description">Customize your interface appearance</div>
-                    </div>
-                    <button>Change</button>
                 </div>
                 <div class="settings-item">
                     <div>

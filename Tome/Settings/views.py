@@ -6,6 +6,7 @@ from django.core.mail import send_mail
 from django.conf import settings as django_settings
 from django.urls import reverse
 from User.models import EmailVerification
+from .models import UserProfile
 
 
 # Helper function to send verification email
@@ -53,8 +54,12 @@ def settings(request):
     # Get or create email verification record
     email_verification, created = EmailVerification.objects.get_or_create(user=request.user)
     
+    # Get or create user profile for theme preference
+    user_profile, created = UserProfile.objects.get_or_create(user=request.user)
+    
     context = {
         'email_verification': email_verification,
+        'user_profile': user_profile,
     }
     return render(request, 'settings/index.html', context)
 
@@ -77,4 +82,25 @@ def resend_verification_email(request):
             logger.error(f'Failed to send verification email to {request.user.email}: {str(e)}')
             messages.error(request, f'Failed to send verification email. Please try again later.')
     
+    return redirect('settings')
+
+
+@login_required
+@require_http_methods(["POST"])
+def change_theme(request):
+    """Change user's theme preference"""
+    theme = request.POST.get('theme', 'default')
+    
+    # Validate theme choice
+    valid_themes = ['default', 'light', 'dark']
+    if theme not in valid_themes:
+        messages.error(request, 'Invalid theme selection.')
+        return redirect('settings')
+    
+    # Get or create user profile
+    user_profile, created = UserProfile.objects.get_or_create(user=request.user)
+    user_profile.theme = theme
+    user_profile.save()
+    
+    messages.success(request, f'Theme changed to {dict(UserProfile.THEME_CHOICES)[theme]}.')
     return redirect('settings')
