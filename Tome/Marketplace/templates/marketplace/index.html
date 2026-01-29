@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DeFi Tome - Home</title>
+    <title>DeFi Tome - Marketplace</title>
     <style>
         * {
             margin: 0;
@@ -74,115 +74,117 @@
             color: #3b82f6;
         }
         
-        .hero {
+        .page-title {
             text-align: center;
-            margin-bottom: 4rem;
+            margin-bottom: 3rem;
         }
         
-        .hero h1 {
-            font-size: 3rem;
+        .page-title h1 {
+            font-size: 2.5rem;
             margin-bottom: 1rem;
             background: linear-gradient(135deg, #60a5fa, #a78bfa);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
         
-        .hero p {
-            font-size: 1.2rem;
+        .page-title p {
+            font-size: 1.1rem;
             color: #94a3b8;
-            margin-bottom: 2rem;
         }
         
-        .main-content {
+        .listings-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
             gap: 2rem;
+            margin-bottom: 3rem;
         }
         
-        .features-section {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 1.5rem;
-        }
-        
-        .feature-card {
+        .listing-card {
             background: rgba(30, 41, 59, 0.8);
             border: 1px solid rgba(148, 163, 184, 0.2);
             border-radius: 12px;
-            padding: 2rem;
+            padding: 1.5rem;
             transition: all 0.3s;
-            cursor: pointer;
         }
         
-        .feature-card:hover {
+        .listing-card:hover {
             border-color: #3b82f6;
             background: rgba(59, 130, 246, 0.05);
             transform: translateY(-4px);
         }
         
-        .feature-card h3 {
-            margin-bottom: 0.5rem;
-            color: #60a5fa;
+        .listing-header {
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
         }
         
-        .feature-card p {
+        .listing-title {
+            font-size: 1.3rem;
+            color: #60a5fa;
+            margin-bottom: 0.5rem;
+        }
+        
+        .listing-seller {
             font-size: 0.9rem;
             color: #94a3b8;
         }
         
-        .news-section {
-            background: rgba(30, 41, 59, 0.8);
-            border: 1px solid rgba(148, 163, 184, 0.2);
-            border-radius: 12px;
-            padding: 2rem;
+        .listing-description {
+            color: #cbd5e1;
+            margin-bottom: 1rem;
+            line-height: 1.6;
         }
         
-        .news-section h2 {
-            margin-bottom: 1.5rem;
+        .listing-details {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .listing-price {
+            font-size: 1.5rem;
+            font-weight: bold;
             color: #60a5fa;
         }
         
-        .news-item {
-            padding: 1.5rem;
-            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
-            transition: background 0.3s;
+        .listing-quantity {
+            font-size: 0.9rem;
+            color: #94a3b8;
         }
         
-        .news-item:last-child {
-            border-bottom: none;
-        }
-        
-        .news-item:hover {
-            background: rgba(59, 130, 246, 0.05);
-            border-radius: 8px;
-        }
-        
-        .news-item h4 {
-            color: #e2e8f0;
-            margin-bottom: 0.5rem;
-        }
-        
-        .news-item .date {
+        .listing-date {
             font-size: 0.8rem;
             color: #64748b;
-            margin-bottom: 0.5rem;
+            text-align: right;
         }
         
-        .news-item p {
-            font-size: 0.95rem;
-            color: #cbd5e1;
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+        }
+        
+        .empty-state h2 {
+            color: #60a5fa;
+            margin-bottom: 1rem;
+            font-size: 1.8rem;
+        }
+        
+        .empty-state p {
+            color: #94a3b8;
+            font-size: 1.1rem;
         }
         
         @media (max-width: 768px) {
-            .main-content {
+            .listings-grid {
                 grid-template-columns: 1fr;
             }
             
-            .features-section {
-                grid-template-columns: 1fr;
-            }
-            
-            .hero h1 {
+            .page-title h1 {
                 font-size: 2rem;
             }
         }
@@ -205,50 +207,39 @@
             </nav>
         </header>
         
-        <section class="hero">
-            <h1>Welcome to DeFi Tome</h1>
-            <p>Your gateway to decentralized finance insights and analysis</p>
+        <section class="page-title">
+            <h1>Marketplace</h1>
+            <p>Browse available listings and discover opportunities</p>
         </section>
         
-        <div class="main-content">
-            <section class="features-section">
-                <div class="feature-card">
-                    <h3>📊 Analytics</h3>
-                    <p>Track real-time market data and trends</p>
-                </div>
-                <div class="feature-card">
-                    <h3>💼 Portfolio</h3>
-                    <p>Manage your DeFi investments</p>
-                </div>
-                <div class="feature-card">
-                    <h3>🔍 Research</h3>
-                    <p>Deep dive into protocols and tokens</p>
-                </div>
-                <div class="feature-card">
-                    <h3>⚡ Tools</h3>
-                    <p>Advanced trading and analysis tools</p>
-                </div>
-            </section>
-            
-            <section class="news-section">
-                <h2>Latest News</h2>
-                <div class="news-item">
-                    <h4>Market Update</h4>
-                    <div class="date">Today at 2:30 PM</div>
-                    <p>Bitcoin reaches new quarterly high amidst positive market sentiment.</p>
-                </div>
-                <div class="news-item">
-                    <h4>Protocol Alert</h4>
-                    <div class="date">Yesterday</div>
-                    <p>Major DeFi protocol releases governance upgrade v3.</p>
-                </div>
-                <div class="news-item">
-                    <h4>Industry News</h4>
-                    <div class="date">2 days ago</div>
-                    <p>New regulations introduced for cryptocurrency derivatives trading.</p>
-                </div>
-            </section>
-        </div>
+        {% if listings %}
+            <div class="listings-grid">
+                {% for listing in listings %}
+                    <div class="listing-card">
+                        <div class="listing-header">
+                            <h3 class="listing-title">{{ listing.item.title }}</h3>
+                            <div class="listing-seller">Seller: {{ listing.seller.username }}</div>
+                        </div>
+                        
+                        <p class="listing-description">{{ listing.item.description }}</p>
+                        
+                        <div class="listing-details">
+                            <div>
+                                <div class="listing-price">{{ listing.price }} TOME</div>
+                                <div class="listing-quantity">{{ listing.quantity_available }} available</div>
+                            </div>
+                        </div>
+                        
+                        <div class="listing-date">Listed on {{ listing.listing_date|date:"M d, Y" }}</div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state">
+                <h2>No Listings Available</h2>
+                <p>Check back soon for new marketplace listings!</p>
+            </div>
+        {% endif %}
     </div>
 </body>
 </html>
