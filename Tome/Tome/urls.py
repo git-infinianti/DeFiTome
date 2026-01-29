@@ -23,4 +23,5 @@ urlpatterns = [
     path('wallet/', include('Wallet.urls')),
     path('settings/', include('Settings.urls')),
     path('marketplace/', include('Marketplace.urls')),
+    path('explorer/', include('Explorer.urls')),
 ]
