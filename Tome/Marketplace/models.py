@@ -67,3 +67,11 @@ class MarketplaceListing(models.Model):
     
     def __str__(self):
         return f"Listing of {self.item.title} by {self.seller.username}"
+
+class MarketplaceOrder(models.Model):
+    transaction = models.ForeignKey(MarketplaceTransaction, on_delete=models.CASCADE, related_name='orders')
+    order_date = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=50, default='Pending')
+    
+    def __str__(self):
+        return f"Order for {self.transaction.item.title} - Status: {self.status}"
