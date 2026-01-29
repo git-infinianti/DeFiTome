@@ -349,11 +349,13 @@
                     <h3>View Transactions</h3>
                     <p>Check your transaction history</p>
                 </div>
-                <div class="management-card">
-                    <div class="management-card-icon">💸</div>
-                    <h3>Send/Receive</h3>
-                    <p>Transfer assets to and from your wallet</p>
-                </div>
+                <a href="{% url 'send_funds' %}" class="management-card-link">
+                    <div class="management-card">
+                        <div class="management-card-icon">💸</div>
+                        <h3>Send/Receive</h3>
+                        <p>Transfer assets to and from your wallet</p>
+                    </div>
+                </a>
                 <div class="management-card">
                     <div class="management-card-icon">⚙️</div>
                     <h3>Settings</h3>

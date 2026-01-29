@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeFi Tome - Receive Funds</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        nav a {
+            color: #cbd5e1;
+            text-decoration: none;
+            margin-left: 2rem;
+            transition: color 0.3s;
+        }
+        
+        nav a:hover {
+            color: #3b82f6;
+        }
+        
+        .logout-form {
+            margin: 0;
+            padding: 0;
+            display: inline;
+        }
+        
+        .logout-form button {
+            background: none;
+            border: none;
+            color: #cbd5e1;
+            text-decoration: none;
+            margin-left: 2rem;
+            cursor: pointer;
+            transition: color 0.3s;
+            font-family: inherit;
+            font-size: inherit;
+        }
+        
+        .logout-form button:hover {
+            color: #3b82f6;
+        }
+        
+        .page-title {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .page-subtitle {
+            font-size: 1.1rem;
+            color: #94a3b8;
+            margin-bottom: 3rem;
+        }
+        
+        .card {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .card h2 {
+            color: #60a5fa;
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+        }
+        
+        .alert {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            color: #93c5fd;
+        }
+        
+        .alert-icon {
+            margin-right: 0.5rem;
+        }
+        
+        .address-display {
+            background: rgba(15, 23, 42, 0.7);
+            border: 2px solid rgba(59, 130, 246, 0.3);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+        }
+        
+        .address-label {
+            color: #94a3b8;
+            font-size: 0.9rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .address-value {
+            font-family: 'Courier New', monospace;
+            font-size: 1.1rem;
+            color: #60a5fa;
+            word-break: break-all;
+            margin-bottom: 1rem;
+        }
+        
+        .qr-placeholder {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            margin-top: 1.5rem;
+        }
+        
+        .qr-placeholder p {
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+        
+        .btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: white;
+            padding: 0.75rem 2rem;
+            border-radius: 8px;
+            text-decoration: none;
+            transition: all 0.3s;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
+        }
+        
+        .btn-secondary {
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid rgba(59, 130, 246, 0.5);
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(59, 130, 246, 0.3);
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        
+        @media (max-width: 768px) {
+            .page-title {
+                font-size: 2rem;
+            }
+            
+            .action-buttons {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">DeFi Tome</div>
+            <nav>
+                <a href="{% url 'home' %}">Home</a>
+                <a href="#explorer">Explorer</a>
+                <a href="{% url 'portfolio' %}">Portfolio</a>
+                <a href="#docs">Docs</a>
+                <a href="{% url 'settings' %}">Settings</a>
+                <form method="post" action="{% url 'logout' %}" class="logout-form">
+                    {% csrf_token %}
+                    <button type="submit">Logout</button>
+                </form>
+            </nav>
+        </header>
+        
+        <h1 class="page-title">📥 Receive Funds</h1>
+        <p class="page-subtitle">Share your wallet address to receive funds</p>
+        
+        <div class="card">
+            <h2>Your Wallet Address</h2>
+            
+            <div class="alert">
+                <span class="alert-icon">ℹ️</span>
+                Share this address to receive funds. Anyone can send to this address.
+            </div>
+            
+            <div class="address-display">
+                <div class="address-label">Wallet Address (EVR):</div>
+                <div class="address-value">{{ address }}</div>
+                <button class="btn btn-secondary" onclick="copyAddress()">📋 Copy Address</button>
+            </div>
+            
+            <div class="qr-placeholder">
+                <p>🔳 QR Code</p>
+                <p style="margin-top: 0.5rem;">QR code functionality can be added in the future</p>
+            </div>
+            
+            <div class="action-buttons">
+                <a href="{% url 'send_funds' %}" class="btn">Send Funds</a>
+                <a href="{% url 'portfolio' %}" class="btn btn-secondary">Back to Portfolio</a>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function copyAddress() {
+            const address = '{{ address }}';
+            navigator.clipboard.writeText(address).then(() => {
+                alert('Address copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+                alert('Failed to copy address');
+            });
+        }
+    </script>
+</body>
+</html>
