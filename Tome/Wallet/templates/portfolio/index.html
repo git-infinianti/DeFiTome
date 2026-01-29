@@ -332,11 +332,13 @@
         <div class="card">
             <h2>Wallet Management</h2>
             <div class="management-section">
-                <div class="management-card">
-                    <div class="management-card-icon">🔑</div>
-                    <h3>Backup Wallet</h3>
-                    <p>Securely backup your wallet credentials</p>
-                </div>
+                <a href="{% url 'backup_wallet' %}" style="text-decoration: none; color: inherit;">
+                    <div class="management-card">
+                        <div class="management-card-icon">🔑</div>
+                        <h3>Backup Wallet</h3>
+                        <p>Securely backup your wallet credentials</p>
+                    </div>
+                </a>
                 <div class="management-card">
                     <div class="management-card-icon">📊</div>
                     <h3>View Transactions</h3>
