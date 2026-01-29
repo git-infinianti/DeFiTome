@@ -11,10 +11,53 @@
             box-sizing: border-box;
         }
         
+        /* Theme variables */
+        body.theme-default, body.theme-dark {
+            --bg-gradient-start: #0f172a;
+            --bg-gradient-end: #1e293b;
+            --text-primary: #e2e8f0;
+            --text-secondary: #cbd5e1;
+            --text-muted: #94a3b8;
+            --border-color: rgba(148, 163, 184, 0.2);
+            --card-bg: rgba(30, 41, 59, 0.8);
+            --input-bg: rgba(15, 23, 42, 0.5);
+            --input-focus-bg: rgba(59, 130, 246, 0.1);
+            --accent-primary: #3b82f6;
+            --accent-secondary: #2563eb;
+            --accent-light: #60a5fa;
+            --error-bg: rgba(239, 68, 68, 0.2);
+            --error-border: rgba(239, 68, 68, 0.3);
+            --error-text: #fca5a5;
+            --success-bg: rgba(34, 197, 94, 0.2);
+            --success-border: rgba(34, 197, 94, 0.3);
+            --success-text: #86efac;
+        }
+        
+        body.theme-light {
+            --bg-gradient-start: #f8fafc;
+            --bg-gradient-end: #e2e8f0;
+            --text-primary: #0f172a;
+            --text-secondary: #334155;
+            --text-muted: #64748b;
+            --border-color: rgba(148, 163, 184, 0.3);
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --input-bg: rgba(241, 245, 249, 0.8);
+            --input-focus-bg: rgba(59, 130, 246, 0.05);
+            --accent-primary: #3b82f6;
+            --accent-secondary: #2563eb;
+            --accent-light: #2563eb;
+            --error-bg: rgba(239, 68, 68, 0.1);
+            --error-border: rgba(239, 68, 68, 0.5);
+            --error-text: #dc2626;
+            --success-bg: rgba(34, 197, 94, 0.1);
+            --success-border: rgba(34, 197, 94, 0.5);
+            --success-text: #16a34a;
+        }
+        
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            color: #e2e8f0;
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            color: var(--text-primary);
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -28,9 +71,9 @@
         }
         
         .login-card {
-            background: rgba(30, 41, 59, 0.8);
+            background: var(--card-bg);
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(148, 163, 184, 0.2);
+            border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 2.5rem;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
@@ -39,7 +82,7 @@
         .logo {
             font-size: 1.5rem;
             font-weight: bold;
-            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            background: linear-gradient(135deg, var(--accent-primary), #8b5cf6);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             text-align: center;
@@ -48,7 +91,7 @@
         
         .subtitle {
             text-align: center;
-            color: #94a3b8;
+            color: var(--text-muted);
             font-size: 0.9rem;
             margin-bottom: 2rem;
         }
@@ -60,7 +103,7 @@
         label {
             display: block;
             margin-bottom: 0.5rem;
-            color: #cbd5e1;
+            color: var(--text-secondary);
             font-size: 0.9rem;
             font-weight: 500;
         }
@@ -69,10 +112,10 @@
         input[type="password"] {
             width: 100%;
             padding: 0.75rem 1rem;
-            background: rgba(15, 23, 42, 0.5);
-            border: 1px solid rgba(148, 163, 184, 0.2);
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
             border-radius: 8px;
-            color: #e2e8f0;
+            color: var(--text-primary);
             font-size: 1rem;
             transition: all 0.3s;
         }
@@ -80,8 +123,8 @@
         input[type="text"]:focus,
         input[type="password"]:focus {
             outline: none;
-            border-color: #3b82f6;
-            background: rgba(59, 130, 246, 0.1);
+            border-color: var(--accent-primary);
+            background: var(--input-focus-bg);
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
         }
         
@@ -96,7 +139,7 @@
             height: 18px;
             margin-right: 0.5rem;
             cursor: pointer;
-            accent-color: #3b82f6;
+            accent-color: var(--accent-primary);
         }
         
         .remember-me label {
@@ -111,7 +154,7 @@
         }
         
         .forgot-password a {
-            color: #60a5fa;
+            color: var(--accent-light);
             text-decoration: none;
             font-size: 0.9rem;
             transition: color 0.3s;
@@ -124,7 +167,7 @@
         button[type="submit"] {
             width: 100%;
             padding: 0.75rem;
-            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
             color: white;
             border: none;
             border-radius: 8px;
@@ -146,12 +189,12 @@
         .signup-link {
             text-align: center;
             margin-top: 1.5rem;
-            color: #94a3b8;
+            color: var(--text-muted);
             font-size: 0.9rem;
         }
         
         .signup-link a {
-            color: #60a5fa;
+            color: var(--accent-light);
             text-decoration: none;
             font-weight: 600;
             transition: color 0.3s;
@@ -169,15 +212,15 @@
         }
         
         .message.error {
-            background: rgba(239, 68, 68, 0.2);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            color: #fca5a5;
+            background: var(--error-bg);
+            border: 1px solid var(--error-border);
+            color: var(--error-text);
         }
         
         .message.success {
-            background: rgba(34, 197, 94, 0.2);
-            border: 1px solid rgba(34, 197, 94, 0.3);
-            color: #86efac;
+            background: var(--success-bg);
+            border: 1px solid var(--success-border);
+            color: var(--success-text);
         }
         
         @media (max-width: 480px) {
@@ -191,7 +234,7 @@
         }
     </style>
 </head>
-<body>
+<body class="theme-{{ user_theme }}">
     <div class="login-container">
         <div class="login-card">
             <div class="logo">DeFi Tome</div>
