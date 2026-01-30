@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claim Fees - DeFi Tome</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        /* Theme variables */
+        :root, .theme-dark, .theme- {
+            --bg-gradient-start: #0f172a;
+            --bg-gradient-end: #1e293b;
+            --text-primary: #e2e8f0;
+            --text-secondary: #cbd5e1;
+            --text-muted: #94a3b8;
+            --border-color: rgba(148, 163, 184, 0.2);
+            --card-bg: rgba(30, 41, 59, 0.8);
+            --card-bg-hover: rgba(59, 130, 246, 0.05);
+            --accent-primary: #3b82f6;
+            --accent-secondary: #8b5cf6;
+            --accent-light: #60a5fa;
+            --input-bg: rgba(15, 23, 42, 0.5);
+            --input-focus-bg: rgba(15, 23, 42, 0.7);
+        }
+        
+        body.theme-light {
+            --bg-gradient-start: #f8fafc;
+            --bg-gradient-end: #e2e8f0;
+            --text-primary: #0f172a;
+            --text-secondary: #334155;
+            --text-muted: #64748b;
+            --border-color: rgba(15, 23, 42, 0.2);
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --card-bg-hover: rgba(59, 130, 246, 0.05);
+            --accent-primary: #3b82f6;
+            --accent-secondary: #8b5cf6;
+            --accent-light: #2563eb;
+            --input-bg: rgba(255, 255, 255, 0.7);
+            --input-focus-bg: rgba(255, 255, 255, 0.9);
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 2rem;
+            transition: color 0.3s;
+        }
+        
+        nav a:hover {
+            color: var(--accent-primary);
+        }
+        
+        .page-title {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, var(--accent-light), #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-align: center;
+        }
+        
+        .page-subtitle {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+        
+        .fee-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .fee-card h3 {
+            color: var(--accent-light);
+            margin-bottom: 1.5rem;
+            font-size: 1.3rem;
+        }
+        
+        .fee-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+            padding: 0.75rem;
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 6px;
+        }
+        
+        .fee-info label {
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+        
+        .fee-info span {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+        
+        .fee-amount {
+            color: #4ade80 !important;
+            font-size: 1.1rem;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 1rem;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 1rem;
+        }
+        
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .messages {
+            margin-bottom: 1.5rem;
+        }
+        
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        
+        .alert-success {
+            background: rgba(34, 197, 94, 0.1);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        
+        .alert-error {
+            background: rgba(239, 68, 68, 0.1);
+            color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        
+        .alert-info {
+            background: rgba(59, 130, 246, 0.1);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 1.5rem;
+            padding: 0.75rem 1.5rem;
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid rgba(59, 130, 246, 0.5);
+            color: var(--text-primary);
+            text-decoration: none;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+        
+        .back-link:hover {
+            background: rgba(59, 130, 246, 0.3);
+        }
+        
+        .no-fees {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+        
+        @media (max-width: 768px) {
+            .page-title {
+                font-size: 2rem;
+            }
+            
+            nav a {
+                margin-left: 1rem;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body class="theme-{{ user_theme }}">
+    <div class="container">
+        <header>
+            <div class="logo">DeFi Tome</div>
+            <nav>
+                <a href="{% url 'home' %}">Home</a>
+                <a href="{% url 'testnet_home' %}">DeFi</a>
+                <a href="{% url 'portfolio' %}">Portfolio</a>
+                <a href="{% url 'settings' %}">Settings</a>
+            </nav>
+        </header>
+        
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        <h1 class="page-title">💰 Claim Liquidity Provider Fees</h1>
+        <p class="page-subtitle">Claim your earned fees from providing liquidity</p>
+        
+        {% if user_positions %}
+            {% for position in user_positions %}
+            <div class="fee-card">
+                <h3>{{ position.pool.token_a_symbol }}/{{ position.pool.token_b_symbol }} Pool</h3>
+                
+                <div class="fee-info">
+                    <label>Your Liquidity Tokens:</label>
+                    <span>{{ position.liquidity_tokens }}</span>
+                </div>
+                
+                <div class="fee-info">
+                    <label>Pool Share:</label>
+                    <span>{% widthratio position.liquidity_tokens position.pool.total_liquidity_tokens 100 %}%</span>
+                </div>
+                
+                <div class="fee-info">
+                    <label>Unclaimed {{ position.pool.token_a_symbol }} Fees:</label>
+                    <span class="fee-amount">{{ position.unclaimed_token_a_fees }}</span>
+                </div>
+                
+                <div class="fee-info">
+                    <label>Unclaimed {{ position.pool.token_b_symbol }} Fees:</label>
+                    <span class="fee-amount">{{ position.unclaimed_token_b_fees }}</span>
+                </div>
+                
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="position_id" value="{{ position.id }}">
+                    <button type="submit" class="btn" {% if position.unclaimed_token_a_fees == 0 and position.unclaimed_token_b_fees == 0 %}disabled{% endif %}>
+                        {% if position.unclaimed_token_a_fees == 0 and position.unclaimed_token_b_fees == 0 %}
+                        No Fees to Claim
+                        {% else %}
+                        Claim Fees
+                        {% endif %}
+                    </button>
+                </form>
+            </div>
+            {% endfor %}
+        {% else %}
+        <div class="fee-card">
+            <div class="no-fees">
+                <p>You don't have any liquidity positions yet.</p>
+                <p>Add liquidity to start earning fees!</p>
+            </div>
+        </div>
+        {% endif %}
+        
+        <a href="{% url 'liquidity' %}" class="back-link">← Back to Liquidity Management</a>
+    </div>
+</body>
+</html>

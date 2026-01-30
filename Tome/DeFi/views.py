@@ -79,15 +79,28 @@ def swap(request):
                     messages.error(request, 'Insufficient liquidity in pool for this swap.')
                     return redirect('swap')
                 
-                # Update pool reserves
+                # Update pool reserves and accumulate fees for liquidity providers
                 if from_token == pool.token_a_symbol:
-                    pool.token_a_reserve += amount
+                    pool.token_a_reserve += amount_with_fee  # Add only amount after fee
                     pool.token_b_reserve -= output_amount
+                    pool.accumulated_token_a_fees += fee  # Accumulate fee separately
                 else:
-                    pool.token_b_reserve += amount
+                    pool.token_b_reserve += amount_with_fee  # Add only amount after fee
                     pool.token_a_reserve -= output_amount
+                    pool.accumulated_token_b_fees += fee  # Accumulate fee separately
                 
                 pool.save()
+                
+                # Distribute fees proportionally to all liquidity providers
+                if pool.total_liquidity_tokens > 0:
+                    positions = LiquidityPosition.objects.filter(pool=pool)
+                    for position in positions:
+                        share = position.liquidity_tokens / pool.total_liquidity_tokens
+                        if from_token == pool.token_a_symbol:
+                            position.unclaimed_token_a_fees += fee * share
+                        else:
+                            position.unclaimed_token_b_fees += fee * share
+                        position.save()
                 
                 # Record transaction with unique hash
                 SwapTransaction.objects.create(
@@ -485,3 +498,62 @@ def my_swap_history(request):
         'swaps': swaps,
     }
     return render(request, 'defi/my_swap_history.html', context)
+
+@login_required
+def claim_fees(request):
+    """Claim accumulated fees from liquidity provision"""
+    user_positions = LiquidityPosition.objects.filter(user=request.user)
+    
+    if request.method == 'POST':
+        position_id = request.POST.get('position_id')
+        
+        if not position_id:
+            messages.error(request, 'Position ID is required.')
+            return redirect('claim_fees')
+        
+        try:
+            with transaction.atomic():
+                position = LiquidityPosition.objects.select_for_update().get(
+                    id=position_id, 
+                    user=request.user
+                )
+                pool = LiquidityPool.objects.select_for_update().get(id=position.pool.id)
+                
+                # Check if there are fees to claim
+                if position.unclaimed_token_a_fees == 0 and position.unclaimed_token_b_fees == 0:
+                    messages.info(request, 'No fees available to claim.')
+                    return redirect('claim_fees')
+                
+                # Claim the fees
+                claimed_token_a = position.unclaimed_token_a_fees
+                claimed_token_b = position.unclaimed_token_b_fees
+                
+                # Deduct from pool accumulated fees
+                pool.accumulated_token_a_fees -= claimed_token_a
+                pool.accumulated_token_b_fees -= claimed_token_b
+                pool.save()
+                
+                # Reset unclaimed fees
+                position.unclaimed_token_a_fees = 0
+                position.unclaimed_token_b_fees = 0
+                position.save()
+                
+                fee_message = []
+                if claimed_token_a > 0:
+                    fee_message.append(f'{claimed_token_a:.8f} {pool.token_a_symbol}')
+                if claimed_token_b > 0:
+                    fee_message.append(f'{claimed_token_b:.8f} {pool.token_b_symbol}')
+                
+                messages.success(request, f'Successfully claimed fees: {" and ".join(fee_message)}!')
+                
+        except LiquidityPosition.DoesNotExist:
+            messages.error(request, 'Position not found.')
+        except Exception as e:
+            messages.error(request, f'Error claiming fees: {str(e)}')
+        
+        return redirect('claim_fees')
+    
+    context = {
+        'user_positions': user_positions,
+    }
+    return render(request, 'defi/claim_fees.html', context)

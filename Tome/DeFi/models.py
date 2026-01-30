@@ -24,6 +24,9 @@ class LiquidityPool(models.Model):
     token_b_reserve = models.DecimalField(max_digits=20, decimal_places=8, default=0)
     total_liquidity_tokens = models.DecimalField(max_digits=20, decimal_places=8, default=0)
     fee_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.30)  # 0.30%
+    # Accumulated fees for fair distribution to liquidity providers
+    accumulated_token_a_fees = models.DecimalField(max_digits=20, decimal_places=8, default=0)
+    accumulated_token_b_fees = models.DecimalField(max_digits=20, decimal_places=8, default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -38,6 +41,9 @@ class LiquidityPosition(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='liquidity_positions')
     pool = models.ForeignKey(LiquidityPool, on_delete=models.CASCADE, related_name='positions')
     liquidity_tokens = models.DecimalField(max_digits=20, decimal_places=8, default=0)
+    # Track unclaimed fees for fair distribution
+    unclaimed_token_a_fees = models.DecimalField(max_digits=20, decimal_places=8, default=0)
+    unclaimed_token_b_fees = models.DecimalField(max_digits=20, decimal_places=8, default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
