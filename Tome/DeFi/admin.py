@@ -3,7 +3,8 @@ from .models import (
     TestnetConfig, LiquidityPool, LiquidityPosition, SwapTransaction, 
     SwapOffer, SwapEscrow, P2PSwapTransaction, PriceFeedSource, 
     PriceFeedData, PriceFeedAggregation, CollateralAsset, InterestRateConfig,
-    LendingPool, Deposit, Loan, LoanRepayment, Liquidation
+    LendingPool, Deposit, Loan, LoanRepayment, Liquidation,
+    FixedRateBond, VariableRateSavings, InterestRateSnapshot
 )
 
 # Register your models here.
@@ -24,3 +25,6 @@ admin.site.register(Deposit)
 admin.site.register(Loan)
 admin.site.register(LoanRepayment)
 admin.site.register(Liquidation)
+admin.site.register(FixedRateBond)
+admin.site.register(VariableRateSavings)
+admin.site.register(InterestRateSnapshot)

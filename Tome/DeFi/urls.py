@@ -24,4 +24,10 @@ urlpatterns = [
     path('lending/repay/', views.repay_loan, name='repay_loan'),
     path('lending/withdraw/', views.withdraw_deposit, name='withdraw_deposit'),
     path('lending/manage/', views.manage_positions, name='manage_positions'),
+    # Fixed/Variable Rate Instruments
+    path('rates/', views.rates_marketplace, name='rates_marketplace'),
+    path('rates/fixed-bond/purchase/', views.purchase_fixed_bond, name='purchase_fixed_bond'),
+    path('rates/variable-savings/open/', views.open_variable_savings, name='open_variable_savings'),
+    path('rates/bond/redeem/<int:bond_id>/', views.redeem_bond, name='redeem_bond'),
+    path('rates/savings/withdraw/<int:savings_id>/', views.withdraw_variable_savings, name='withdraw_variable_savings'),
 ]

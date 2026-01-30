@@ -373,3 +373,113 @@ class Liquidation(models.Model):
     
     class Meta:
         ordering = ['-created_at']
+
+class FixedRateBond(models.Model):
+    """Fixed-term bond with guaranteed fixed interest rate"""
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('matured', 'Matured'),
+        ('redeemed', 'Redeemed'),
+    ]
+    
+    TERM_CHOICES = [
+        (30, '30 Days'),
+        (90, '90 Days'),
+        (180, '180 Days'),
+        (365, '1 Year'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='fixed_rate_bonds')
+    token_symbol = models.CharField(max_length=10)
+    principal_amount = models.DecimalField(max_digits=30, decimal_places=8)
+    fixed_rate_apr = models.DecimalField(max_digits=5, decimal_places=2)  # Annual rate
+    term_days = models.IntegerField(choices=TERM_CHOICES)
+    
+    # Calculated fields
+    maturity_amount = models.DecimalField(max_digits=30, decimal_places=8)
+    expected_interest = models.DecimalField(max_digits=30, decimal_places=8)
+    
+    # Status and dates
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    issued_at = models.DateTimeField(auto_now_add=True)
+    maturity_date = models.DateTimeField()
+    redeemed_at = models.DateTimeField(null=True, blank=True)
+    
+    def __str__(self):
+        return f"FixedRateBond({self.user.username}, {self.principal_amount} {self.token_symbol} @ {self.fixed_rate_apr}% for {self.term_days} days)"
+    
+    @property
+    def is_matured(self):
+        """Check if bond has reached maturity"""
+        from django.utils import timezone
+        return timezone.now() >= self.maturity_date
+    
+    @property
+    def days_remaining(self):
+        """Calculate days until maturity"""
+        from django.utils import timezone
+        if self.is_matured:
+            return 0
+        delta = self.maturity_date - timezone.now()
+        return max(0, delta.days)
+    
+    class Meta:
+        ordering = ['-issued_at']
+
+class VariableRateSavings(models.Model):
+    """Variable rate savings account with dynamic APR based on market conditions"""
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('withdrawn', 'Withdrawn'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='variable_rate_savings')
+    pool = models.ForeignKey(LendingPool, on_delete=models.CASCADE, related_name='variable_savings')
+    principal_amount = models.DecimalField(max_digits=30, decimal_places=8)
+    accrued_interest = models.DecimalField(max_digits=30, decimal_places=8, default=0)
+    
+    # Rate tracking
+    opening_rate = models.DecimalField(max_digits=5, decimal_places=2)
+    current_rate = models.DecimalField(max_digits=5, decimal_places=2)
+    
+    # Status and dates
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    withdrawn_at = models.DateTimeField(null=True, blank=True)
+    last_rate_update = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"VariableRateSavings({self.user.username}, {self.principal_amount} {self.pool.token_symbol} @ {self.current_rate}%)"
+    
+    @property
+    def total_balance(self):
+        """Total balance including accrued interest"""
+        return self.principal_amount + self.accrued_interest
+    
+    class Meta:
+        ordering = ['-created_at']
+
+class InterestRateSnapshot(models.Model):
+    """Historical snapshot of interest rates for analytics and charts"""
+    token_symbol = models.CharField(max_length=10)
+    rate_type = models.CharField(max_length=20, choices=[
+        ('variable_supply', 'Variable Supply'),
+        ('variable_borrow', 'Variable Borrow'),
+        ('fixed_30d', 'Fixed 30 Day'),
+        ('fixed_90d', 'Fixed 90 Day'),
+        ('fixed_180d', 'Fixed 180 Day'),
+        ('fixed_365d', 'Fixed 1 Year'),
+    ])
+    rate_apr = models.DecimalField(max_digits=5, decimal_places=2)
+    utilization_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    
+    def __str__(self):
+        return f"InterestRateSnapshot({self.token_symbol} {self.rate_type} @ {self.rate_apr}%)"
+    
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['token_symbol', 'rate_type', '-timestamp']),
+        ]
