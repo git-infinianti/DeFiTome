@@ -1137,3 +1137,222 @@ def manage_positions(request):
         'total_borrowed': total_borrowed,
     }
     return render(request, 'lending/manage.html', context)
+
+# Fixed/Variable Rate Instruments
+@login_required
+def rates_marketplace(request):
+    """Marketplace view for fixed and variable rate instruments"""
+    from .models import FixedRateBond, VariableRateSavings, InterestRateSnapshot, LendingPool
+    from django.db.models import Avg
+    
+    # Get all lending pools with current rates
+    lending_pools = LendingPool.objects.filter(is_active=True).select_related('interest_rate_config')
+    
+    # Get fixed rate options (simulate available fixed rate products)
+    fixed_rate_options = {
+        30: Decimal('4.5'),   # 30 days: 4.5% APR
+        90: Decimal('5.2'),   # 90 days: 5.2% APR
+        180: Decimal('6.0'),  # 180 days: 6.0% APR
+        365: Decimal('7.5'),  # 365 days: 7.5% APR
+    }
+    
+    # Get user's active bonds and savings
+    user_bonds = FixedRateBond.objects.filter(user=request.user, status='active')
+    user_savings = VariableRateSavings.objects.filter(user=request.user, status='active').select_related('pool')
+    
+    # Get recent rate history for charts
+    recent_snapshots = InterestRateSnapshot.objects.filter(
+        token_symbol='TOME'
+    ).order_by('rate_type', '-timestamp').distinct('rate_type')[:10]
+    
+    context = {
+        'lending_pools': lending_pools,
+        'fixed_rate_options': fixed_rate_options,
+        'user_bonds': user_bonds,
+        'user_savings': user_savings,
+        'recent_snapshots': recent_snapshots,
+    }
+    return render(request, 'defi/rates_marketplace.html', context)
+
+@login_required
+def purchase_fixed_bond(request):
+    """Purchase a fixed-rate bond"""
+    from .models import FixedRateBond
+    from datetime import timedelta
+    from django.utils import timezone
+    
+    if request.method == 'POST':
+        token_symbol = request.POST.get('token_symbol', 'TOME').strip().upper()
+        amount = request.POST.get('amount', '').strip()
+        term_days = request.POST.get('term_days', '').strip()
+        
+        # Validate inputs
+        if not amount or not term_days:
+            messages.error(request, 'Amount and term are required.')
+            return redirect('rates_marketplace')
+        
+        try:
+            amount_decimal = Decimal(amount)
+            term_days_int = int(term_days)
+            
+            if amount_decimal <= 0:
+                messages.error(request, 'Amount must be greater than zero.')
+                return redirect('rates_marketplace')
+            
+            if term_days_int not in [30, 90, 180, 365]:
+                messages.error(request, 'Invalid term length.')
+                return redirect('rates_marketplace')
+            
+            # Determine fixed rate based on term
+            fixed_rates = {
+                30: Decimal('4.5'),
+                90: Decimal('5.2'),
+                180: Decimal('6.0'),
+                365: Decimal('7.5'),
+            }
+            fixed_rate = fixed_rates[term_days_int]
+            
+            # Calculate maturity values
+            # Interest = Principal * (Rate / 100) * (Days / 365)
+            expected_interest = amount_decimal * (fixed_rate / Decimal('100')) * (Decimal(term_days_int) / Decimal('365'))
+            maturity_amount = amount_decimal + expected_interest
+            maturity_date = timezone.now() + timedelta(days=term_days_int)
+            
+            # Create the bond
+            bond = FixedRateBond.objects.create(
+                user=request.user,
+                token_symbol=token_symbol,
+                principal_amount=amount_decimal,
+                fixed_rate_apr=fixed_rate,
+                term_days=term_days_int,
+                maturity_amount=maturity_amount,
+                expected_interest=expected_interest,
+                maturity_date=maturity_date,
+                status='active'
+            )
+            
+            messages.success(request, f'Fixed-rate bond purchased! You will receive {maturity_amount} {token_symbol} after {term_days_int} days.')
+            return redirect('rates_marketplace')
+            
+        except (ValueError, InvalidOperation) as e:
+            messages.error(request, 'Invalid amount or term format.')
+            return redirect('rates_marketplace')
+        except Exception as e:
+            messages.error(request, f'Error purchasing bond: {str(e)}')
+            return redirect('rates_marketplace')
+    
+    return redirect('rates_marketplace')
+
+@login_required
+def open_variable_savings(request):
+    """Open a variable-rate savings account"""
+    from .models import VariableRateSavings, LendingPool
+    
+    if request.method == 'POST':
+        pool_id = request.POST.get('pool_id')
+        amount = request.POST.get('amount', '').strip()
+        
+        # Validate inputs
+        if not pool_id or not amount:
+            messages.error(request, 'Pool and amount are required.')
+            return redirect('rates_marketplace')
+        
+        try:
+            amount_decimal = Decimal(amount)
+            
+            if amount_decimal <= 0:
+                messages.error(request, 'Amount must be greater than zero.')
+                return redirect('rates_marketplace')
+            
+            pool = LendingPool.objects.get(id=pool_id, is_active=True)
+            current_rate = pool.current_supply_rate
+            
+            # Create or update variable savings
+            savings, created = VariableRateSavings.objects.get_or_create(
+                user=request.user,
+                pool=pool,
+                status='active',
+                defaults={
+                    'principal_amount': amount_decimal,
+                    'opening_rate': current_rate,
+                    'current_rate': current_rate,
+                }
+            )
+            
+            if not created:
+                # Update existing savings
+                savings.principal_amount += amount_decimal
+                savings.current_rate = current_rate
+                savings.save()
+            
+            messages.success(request, f'Variable-rate savings opened! Current APR: {current_rate}%')
+            return redirect('rates_marketplace')
+            
+        except LendingPool.DoesNotExist:
+            messages.error(request, 'Lending pool not found.')
+            return redirect('rates_marketplace')
+        except (ValueError, InvalidOperation):
+            messages.error(request, 'Invalid amount format.')
+            return redirect('rates_marketplace')
+        except Exception as e:
+            messages.error(request, f'Error opening savings: {str(e)}')
+            return redirect('rates_marketplace')
+    
+    return redirect('rates_marketplace')
+
+@login_required
+def redeem_bond(request, bond_id):
+    """Redeem a matured fixed-rate bond"""
+    from .models import FixedRateBond
+    from django.utils import timezone
+    
+    if request.method == 'POST':
+        try:
+            bond = FixedRateBond.objects.get(id=bond_id, user=request.user, status='active')
+            
+            if not bond.is_matured:
+                messages.warning(request, f'Bond is not yet matured. {bond.days_remaining} days remaining.')
+                return redirect('rates_marketplace')
+            
+            # Redeem the bond
+            bond.status = 'redeemed'
+            bond.redeemed_at = timezone.now()
+            bond.save()
+            
+            messages.success(request, f'Bond redeemed successfully! You received {bond.maturity_amount} {bond.token_symbol}.')
+            
+        except FixedRateBond.DoesNotExist:
+            messages.error(request, 'Bond not found.')
+        except Exception as e:
+            messages.error(request, f'Error redeeming bond: {str(e)}')
+        
+        return redirect('rates_marketplace')
+    
+    return redirect('rates_marketplace')
+
+@login_required
+def withdraw_variable_savings(request, savings_id):
+    """Withdraw from variable-rate savings"""
+    from .models import VariableRateSavings
+    from django.utils import timezone
+    
+    if request.method == 'POST':
+        try:
+            savings = VariableRateSavings.objects.get(id=savings_id, user=request.user, status='active')
+            
+            # Withdraw the savings
+            total_withdrawal = savings.total_balance
+            savings.status = 'withdrawn'
+            savings.withdrawn_at = timezone.now()
+            savings.save()
+            
+            messages.success(request, f'Savings withdrawn successfully! You received {total_withdrawal} {savings.pool.token_symbol}.')
+            
+        except VariableRateSavings.DoesNotExist:
+            messages.error(request, 'Savings account not found.')
+        except Exception as e:
+            messages.error(request, f'Error withdrawing savings: {str(e)}')
+        
+        return redirect('rates_marketplace')
+    
+    return redirect('rates_marketplace')
