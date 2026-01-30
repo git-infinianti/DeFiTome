@@ -1,4 +1,4 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from decimal import Decimal, InvalidOperation
@@ -20,7 +20,14 @@ def create_listing(request):
         price = request.POST.get('price', '').strip()
         quantity = request.POST.get('quantity', '').strip()
         allow_swaps = request.POST.get('allow_swaps') == 'on'
-        preferred_swap_token = request.POST.get('preferred_swap_token', '').strip()
+        preferred_swap_token = request.POST.get('preferred_swap_token', '').strip().upper()
+        
+        # Validate preferred swap token format
+        if preferred_swap_token and not preferred_swap_token.isalnum():
+            messages.error(request, 'Preferred swap token must be alphanumeric only.')
+            return render(request, 'marketplace/create_listing.html', {
+                'title': title, 'description': description, 'price': price, 'quantity': quantity
+            })
         
         # Validate required fields
         if not title or not description or not price or not quantity:
@@ -85,7 +92,7 @@ def create_listing(request):
 @login_required
 def listing_detail(request, listing_id):
     """Display detailed view of a marketplace listing"""
-    listing = MarketplaceListing.objects.select_related('item', 'seller').get(id=listing_id)
+    listing = get_object_or_404(MarketplaceListing.objects.select_related('item', 'seller'), id=listing_id)
     
     context = {
         'listing': listing,

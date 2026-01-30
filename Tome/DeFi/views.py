@@ -262,16 +262,45 @@ def transactions(request):
 @login_required
 def create_swap_offer(request, listing_id=None):
     """Create a P2P swap offer"""
+    marketplace_listing = None
+    initial_data = {}
+    
+    if listing_id:
+        from Marketplace.models import MarketplaceListing
+        try:
+            marketplace_listing = MarketplaceListing.objects.get(id=listing_id)
+            if not marketplace_listing.allow_swaps:
+                messages.error(request, 'This listing does not accept swap offers.')
+                return redirect('marketplace')
+            # Pre-populate with listing information
+            initial_data = {
+                'counterparty': marketplace_listing.seller.username,
+                'preferred_token': marketplace_listing.preferred_swap_token
+            }
+        except MarketplaceListing.DoesNotExist:
+            messages.error(request, 'Listing not found.')
+            return redirect('marketplace')
+    
     if request.method == 'POST':
-        offer_token = request.POST.get('offer_token', '').strip()
+        offer_token = request.POST.get('offer_token', '').strip().upper()
         offer_amount = request.POST.get('offer_amount', '').strip()
-        request_token = request.POST.get('request_token', '').strip()
+        request_token = request.POST.get('request_token', '').strip().upper()
         request_amount = request.POST.get('request_amount', '').strip()
         counterparty_username = request.POST.get('counterparty', '').strip()
         
         # Validate inputs
         if not all([offer_token, offer_amount, request_token, request_amount]):
             messages.error(request, 'All fields are required.')
+            return redirect('create_swap_offer')
+        
+        # Validate token symbols are different
+        if offer_token == request_token:
+            messages.error(request, 'Cannot swap the same token for itself.')
+            return redirect('create_swap_offer')
+        
+        # Validate token format (alphanumeric only)
+        if not offer_token.isalnum() or not request_token.isalnum():
+            messages.error(request, 'Token symbols must be alphanumeric only.')
             return redirect('create_swap_offer')
         
         try:
@@ -281,7 +310,7 @@ def create_swap_offer(request, listing_id=None):
             if offer_amount <= 0 or request_amount <= 0:
                 messages.error(request, 'Amounts must be greater than zero.')
                 return redirect('create_swap_offer')
-        except (ValueError, Exception):
+        except (ValueError, InvalidOperation):
             messages.error(request, 'Invalid amount format.')
             return redirect('create_swap_offer')
         
@@ -297,16 +326,6 @@ def create_swap_offer(request, listing_id=None):
             except User.DoesNotExist:
                 messages.error(request, f'User {counterparty_username} not found.')
                 return redirect('create_swap_offer')
-        
-        # Get marketplace listing if specified
-        marketplace_listing = None
-        if listing_id:
-            from Marketplace.models import MarketplaceListing
-            try:
-                marketplace_listing = MarketplaceListing.objects.get(id=listing_id)
-            except MarketplaceListing.DoesNotExist:
-                messages.error(request, 'Listing not found.')
-                return redirect('marketplace')
         
         # Create swap offer
         expires_at = timezone.now() + timedelta(days=7)
@@ -325,7 +344,11 @@ def create_swap_offer(request, listing_id=None):
         messages.success(request, 'Swap offer created successfully!')
         return redirect('my_swap_offers')
     
-    return render(request, 'defi/create_swap_offer.html')
+    context = {
+        'initial_data': initial_data,
+        'marketplace_listing': marketplace_listing
+    }
+    return render(request, 'defi/create_swap_offer.html', context)
 
 @login_required
 def accept_swap_offer(request, offer_id):
@@ -439,20 +462,15 @@ def available_swap_offers(request):
     # 3. Either no counterparty or counterparty is current user
     # 4. Not created by current user
     offers = SwapOffer.objects.filter(
-        status='pending',
-        expires_at__gt=timezone.now()
+        Q(status='pending'),
+        Q(expires_at__gt=timezone.now()),
+        Q(counterparty__isnull=True) | Q(counterparty=request.user)
     ).exclude(
         initiator=request.user
     ).order_by('-created_at')
     
-    # Filter for offers available to this user
-    available_offers = [
-        offer for offer in offers 
-        if offer.counterparty is None or offer.counterparty == request.user
-    ]
-    
     context = {
-        'offers': available_offers,
+        'offers': offers,
     }
     return render(request, 'defi/available_swap_offers.html', context)
 
