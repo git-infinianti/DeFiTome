@@ -229,7 +229,8 @@
             <nav>
                 <a href="{% url 'home' %}">Home</a>
                 <a href="{% url 'explorer' %}">Explorer</a>
-                <a href="{% url 'marketplace' %}">Marketplace</a>
+                <a href="{% url 'marketplace' %}">Listings</a>
+                <a href="{% url 'dex_orderbook' %}">DEX</a>
                 <a href="{% url 'portfolio' %}">Portfolio</a>
                 <a href="{% url 'api_docs' %}">Docs</a>
                 <a href="{% url 'settings' %}">Settings</a>
@@ -238,10 +239,11 @@
         
         <section class="page-title">
             <h1>Marketplace</h1>
-            <p>Browse available listings and discover opportunities</p>
+            <p>Browse available listings and trade on the DEX</p>
         </section>
         
         <div class="page-actions">
+            <a href="{% url 'dex_orderbook' %}" class="btn-create" style="background: linear-gradient(135deg, #10b981, #34d399); margin-right: 1rem;">📊 Trade on DEX</a>
             <a href="{% url 'create_listing' %}" class="btn-create">+ Create New Listing</a>
         </div>
         

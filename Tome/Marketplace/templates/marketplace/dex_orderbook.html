@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeFi Tome - Order Book DEX</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 1.5rem;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        nav a {
+            color: #cbd5e1;
+            text-decoration: none;
+            margin-left: 2rem;
+            transition: color 0.3s;
+        }
+        
+        nav a:hover {
+            color: #3b82f6;
+        }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+        
+        .page-title {
+            font-size: 2rem;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .quick-nav {
+            display: flex;
+            gap: 1rem;
+        }
+        
+        .btn-nav {
+            padding: 0.625rem 1.25rem;
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #60a5fa;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        
+        .btn-nav:hover {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: #60a5fa;
+        }
+        
+        .dex-layout {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 1.5rem;
+        }
+        
+        .main-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        
+        .trading-pair-selector {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+        
+        .pair-tabs {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        
+        .pair-tab {
+            padding: 0.625rem 1.25rem;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            color: #cbd5e1;
+            text-decoration: none;
+            border-radius: 6px;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+        
+        .pair-tab:hover {
+            border-color: #60a5fa;
+            background: rgba(59, 130, 246, 0.1);
+        }
+        
+        .pair-tab.active {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            border-color: transparent;
+            color: white;
+        }
+        
+        .orderbook-section {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        
+        .orderbook-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .orderbook-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #e2e8f0;
+        }
+        
+        .orderbook-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1px;
+            background: rgba(148, 163, 184, 0.2);
+        }
+        
+        .order-side {
+            background: rgba(30, 41, 59, 0.8);
+            padding: 1rem;
+        }
+        
+        .order-side-title {
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        
+        .sell-title {
+            color: #f87171;
+        }
+        
+        .buy-title {
+            color: #34d399;
+        }
+        
+        .order-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            font-size: 0.9rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+        }
+        
+        .order-row:hover {
+            background: rgba(59, 130, 246, 0.05);
+        }
+        
+        .order-price {
+            font-weight: 600;
+        }
+        
+        .sell-price {
+            color: #f87171;
+        }
+        
+        .buy-price {
+            color: #34d399;
+        }
+        
+        .order-quantity {
+            color: #94a3b8;
+            text-align: right;
+        }
+        
+        .empty-orderbook {
+            padding: 2rem;
+            text-align: center;
+            color: #94a3b8;
+        }
+        
+        .recent-trades {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+            overflow: hidden;
+            max-height: 400px;
+        }
+        
+        .trades-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        
+        .trades-list {
+            max-height: 320px;
+            overflow-y: auto;
+        }
+        
+        .trade-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+            font-size: 0.85rem;
+        }
+        
+        .trade-row:hover {
+            background: rgba(59, 130, 246, 0.05);
+        }
+        
+        .side-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        
+        .quick-trade-card {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+        
+        .quick-trade-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #e2e8f0;
+        }
+        
+        .trade-type-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.25rem;
+            background: rgba(15, 23, 42, 0.6);
+            border-radius: 8px;
+            padding: 0.25rem;
+        }
+        
+        .trade-type-tab {
+            flex: 1;
+            padding: 0.625rem;
+            background: transparent;
+            border: none;
+            color: #cbd5e1;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+        
+        .trade-type-tab:hover {
+            background: rgba(59, 130, 246, 0.1);
+        }
+        
+        .trade-type-tab.active {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: white;
+        }
+        
+        .trade-form {
+            display: none;
+        }
+        
+        .trade-form.active {
+            display: block;
+        }
+        
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        .form-label {
+            display: block;
+            font-size: 0.875rem;
+            color: #cbd5e1;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 0.75rem;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 6px;
+            color: #e2e8f0;
+            font-size: 0.95rem;
+            transition: all 0.3s;
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            background: rgba(15, 23, 42, 0.8);
+        }
+        
+        .side-selector {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .side-btn {
+            padding: 0.75rem;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            background: rgba(15, 23, 42, 0.6);
+            color: #cbd5e1;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        
+        .side-btn.buy {
+            border-color: rgba(52, 211, 153, 0.3);
+        }
+        
+        .side-btn.buy:hover,
+        .side-btn.buy.active {
+            background: rgba(52, 211, 153, 0.2);
+            border-color: #34d399;
+            color: #34d399;
+        }
+        
+        .side-btn.sell {
+            border-color: rgba(248, 113, 113, 0.3);
+        }
+        
+        .side-btn.sell:hover,
+        .side-btn.sell.active {
+            background: rgba(248, 113, 113, 0.2);
+            border-color: #f87171;
+            color: #f87171;
+        }
+        
+        .submit-btn {
+            width: 100%;
+            padding: 0.875rem;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            border: none;
+            color: white;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .submit-btn:hover {
+            background: linear-gradient(135deg, #2563eb, #7c3aed);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(59, 130, 246, 0.3);
+        }
+        
+        .submit-btn.buy {
+            background: linear-gradient(135deg, #10b981, #34d399);
+        }
+        
+        .submit-btn.buy:hover {
+            background: linear-gradient(135deg, #059669, #10b981);
+        }
+        
+        .submit-btn.sell {
+            background: linear-gradient(135deg, #ef4444, #f87171);
+        }
+        
+        .submit-btn.sell:hover {
+            background: linear-gradient(135deg, #dc2626, #ef4444);
+        }
+        
+        .info-text {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            text-align: center;
+            margin-top: 0.5rem;
+        }
+        
+        .messages {
+            margin-bottom: 1rem;
+        }
+        
+        .alert {
+            padding: 1rem 1.25rem;
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+        }
+        
+        .alert-success {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+        }
+        
+        .alert-error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+        }
+        
+        .alert-warning {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: #fbbf24;
+        }
+        
+        @media (max-width: 1200px) {
+            .dex-layout {
+                grid-template-columns: 1fr;
+            }
+            
+            .orderbook-content {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">DeFi Tome</div>
+            <nav>
+                <a href="{% url 'home' %}">Home</a>
+                <a href="{% url 'explorer' %}">Explorer</a>
+                <a href="{% url 'marketplace' %}">Listings</a>
+                <a href="{% url 'dex_orderbook' %}">DEX</a>
+                <a href="{% url 'my_orders' %}">My Orders</a>
+            </nav>
+        </header>
+        
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+                <div class="alert alert-{% if message.tags == 'error' %}error{% elif message.tags == 'success' %}success{% elif message.tags == 'warning' %}warning{% else %}info{% endif %}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        <div class="page-header">
+            <h1 class="page-title">Order Book DEX</h1>
+            <div class="quick-nav">
+                <a href="{% url 'marketplace' %}" class="btn-nav">← Back to Marketplace</a>
+                <a href="{% url 'my_orders' %}" class="btn-nav">My Orders</a>
+            </div>
+        </div>
+        
+        {% if not selected_pair %}
+        <div class="empty-orderbook">
+            <h2>No Trading Pairs Available</h2>
+            <p>Trading pairs will be added soon. Please check back later.</p>
+        </div>
+        {% else %}
+        
+        <div class="trading-pair-selector">
+            <div class="pair-tabs">
+                {% for pair in trading_pairs %}
+                <a href="?pair={{ pair.id }}" class="pair-tab {% if pair.id == selected_pair.id %}active{% endif %}">
+                    {{ pair.base_token }}/{{ pair.quote_token }}
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <div class="dex-layout">
+            <div class="main-panel">
+                <!-- Order Book -->
+                <div class="orderbook-section">
+                    <div class="orderbook-header">
+                        <h2 class="orderbook-title">Order Book - {{ selected_pair.base_token }}/{{ selected_pair.quote_token }}</h2>
+                    </div>
+                    <div class="orderbook-content">
+                        <!-- Sell Orders -->
+                        <div class="order-side">
+                            <div class="order-side-title sell-title">📉 Sell Orders</div>
+                            {% if sell_orders %}
+                                {% for order in sell_orders reversed %}
+                                <div class="order-row">
+                                    <div class="order-price sell-price">{{ order.price }}</div>
+                                    <div class="order-quantity">{{ order.remaining_quantity }}</div>
+                                </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="empty-orderbook">No sell orders</div>
+                            {% endif %}
+                        </div>
+                        
+                        <!-- Buy Orders -->
+                        <div class="order-side">
+                            <div class="order-side-title buy-title">📈 Buy Orders</div>
+                            {% if buy_orders %}
+                                {% for order in buy_orders %}
+                                <div class="order-row">
+                                    <div class="order-price buy-price">{{ order.price }}</div>
+                                    <div class="order-quantity">{{ order.remaining_quantity }}</div>
+                                </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="empty-orderbook">No buy orders</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Recent Trades -->
+                <div class="recent-trades">
+                    <div class="trades-header">
+                        <h3 class="orderbook-title">Recent Trades</h3>
+                    </div>
+                    <div class="trades-list">
+                        {% if recent_trades %}
+                            {% for trade in recent_trades %}
+                            <div class="trade-row">
+                                <div style="color: #94a3b8;">{{ trade.price }}</div>
+                                <div style="color: #cbd5e1;">{{ trade.quantity }}</div>
+                                <div style="color: #94a3b8; text-align: right;">{{ trade.created_at|date:"H:i:s" }}</div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="empty-orderbook">No recent trades</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Trading Panel -->
+            <div class="side-panel">
+                <div class="quick-trade-card">
+                    <h2 class="quick-trade-title">Quick Trade</h2>
+                    
+                    <!-- Trade Type Tabs -->
+                    <div class="trade-type-tabs">
+                        <button class="trade-type-tab active" onclick="switchTab(event, 'market')">Market</button>
+                        <button class="trade-type-tab" onclick="switchTab(event, 'limit')">Limit</button>
+                        <button class="trade-type-tab" onclick="switchTab(event, 'stoploss')">Stop-Loss</button>
+                    </div>
+                    
+                    <!-- Market Order Form -->
+                    <form method="post" action="{% url 'place_market_order' %}" class="trade-form active" id="market-form">
+                        {% csrf_token %}
+                        <input type="hidden" name="pair_id" value="{{ selected_pair.id }}">
+                        
+                        <div class="side-selector">
+                            <button type="button" class="side-btn buy active" onclick="selectSide(event, 'market', 'buy')">Buy</button>
+                            <button type="button" class="side-btn sell" onclick="selectSide(event, 'market', 'sell')">Sell</button>
+                        </div>
+                        <input type="hidden" name="side" value="buy" id="market-side">
+                        
+                        <div class="form-group">
+                            <label class="form-label">Quantity ({{ selected_pair.base_token }})</label>
+                            <input type="text" name="quantity" class="form-input" placeholder="0.00000000" required>
+                        </div>
+                        
+                        <button type="submit" class="submit-btn buy" id="market-submit">Buy at Market Price</button>
+                        <p class="info-text">Instant execution at best available price</p>
+                    </form>
+                    
+                    <!-- Limit Order Form -->
+                    <form method="post" action="{% url 'place_limit_order' %}" class="trade-form" id="limit-form">
+                        {% csrf_token %}
+                        <input type="hidden" name="pair_id" value="{{ selected_pair.id }}">
+                        
+                        <div class="side-selector">
+                            <button type="button" class="side-btn buy active" onclick="selectSide(event, 'limit', 'buy')">Buy</button>
+                            <button type="button" class="side-btn sell" onclick="selectSide(event, 'limit', 'sell')">Sell</button>
+                        </div>
+                        <input type="hidden" name="side" value="buy" id="limit-side">
+                        
+                        <div class="form-group">
+                            <label class="form-label">Price ({{ selected_pair.quote_token }})</label>
+                            <input type="text" name="price" class="form-input" placeholder="0.00000000" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Quantity ({{ selected_pair.base_token }})</label>
+                            <input type="text" name="quantity" class="form-input" placeholder="0.00000000" required>
+                        </div>
+                        
+                        <button type="submit" class="submit-btn buy" id="limit-submit">Place Buy Limit Order</button>
+                        <p class="info-text">Order executes when price reaches your limit</p>
+                    </form>
+                    
+                    <!-- Stop-Loss Order Form -->
+                    <form method="post" action="{% url 'place_stop_loss_order' %}" class="trade-form" id="stoploss-form">
+                        {% csrf_token %}
+                        <input type="hidden" name="pair_id" value="{{ selected_pair.id }}">
+                        
+                        <div class="side-selector">
+                            <button type="button" class="side-btn buy active" onclick="selectSide(event, 'stoploss', 'buy')">Buy</button>
+                            <button type="button" class="side-btn sell" onclick="selectSide(event, 'stoploss', 'sell')">Sell</button>
+                        </div>
+                        <input type="hidden" name="side" value="buy" id="stoploss-side">
+                        
+                        <div class="form-group">
+                            <label class="form-label">Trigger Price ({{ selected_pair.quote_token }})</label>
+                            <input type="text" name="trigger_price" class="form-input" placeholder="0.00000000" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Quantity ({{ selected_pair.base_token }})</label>
+                            <input type="text" name="quantity" class="form-input" placeholder="0.00000000" required>
+                        </div>
+                        
+                        <button type="submit" class="submit-btn buy" id="stoploss-submit">Place Buy Stop-Loss</button>
+                        <p class="info-text">Automatically triggers when price reaches target</p>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    
+    <script>
+        function switchTab(event, type) {
+            // Update tab buttons
+            const tabs = document.querySelectorAll('.trade-type-tab');
+            tabs.forEach(tab => tab.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Update forms
+            const forms = document.querySelectorAll('.trade-form');
+            forms.forEach(form => form.classList.remove('active'));
+            document.getElementById(type + '-form').classList.add('active');
+        }
+        
+        function selectSide(event, formType, side) {
+            // Update button states
+            const form = document.getElementById(formType + '-form');
+            const buttons = form.querySelectorAll('.side-btn');
+            buttons.forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Update hidden input
+            document.getElementById(formType + '-side').value = side;
+            
+            // Update submit button
+            const submitBtn = document.getElementById(formType + '-submit');
+            submitBtn.className = 'submit-btn ' + side;
+            if (side === 'buy') {
+                if (formType === 'market') {
+                    submitBtn.textContent = 'Buy at Market Price';
+                } else if (formType === 'limit') {
+                    submitBtn.textContent = 'Place Buy Limit Order';
+                } else {
+                    submitBtn.textContent = 'Place Buy Stop-Loss';
+                }
+            } else {
+                if (formType === 'market') {
+                    submitBtn.textContent = 'Sell at Market Price';
+                } else if (formType === 'limit') {
+                    submitBtn.textContent = 'Place Sell Limit Order';
+                } else {
+                    submitBtn.textContent = 'Place Sell Stop-Loss';
+                }
+            }
+        }
+    </script>
+</body>
+</html>
