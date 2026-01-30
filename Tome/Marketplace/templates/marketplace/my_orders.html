@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeFi Tome - My Orders</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        nav a {
+            color: #cbd5e1;
+            text-decoration: none;
+            margin-left: 2rem;
+            transition: color 0.3s;
+        }
+        
+        nav a:hover {
+            color: #3b82f6;
+        }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+        
+        .page-title {
+            font-size: 2rem;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .btn-nav {
+            padding: 0.625rem 1.25rem;
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #60a5fa;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        
+        .btn-nav:hover {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: #60a5fa;
+        }
+        
+        .section {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            color: #e2e8f0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .order-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .order-table th {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 2px solid rgba(148, 163, 184, 0.2);
+            color: #cbd5e1;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        
+        .order-table td {
+            padding: 0.875rem 0.75rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+        }
+        
+        .order-table tr:hover {
+            background: rgba(59, 130, 246, 0.05);
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.625rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        
+        .status-pending {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+        
+        .status-partial {
+            background: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+        
+        .status-filled {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        
+        .status-cancelled {
+            background: rgba(148, 163, 184, 0.2);
+            color: #94a3b8;
+            border: 1px solid rgba(148, 163, 184, 0.3);
+        }
+        
+        .status-executed {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        
+        .status-triggered {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+        
+        .side-buy {
+            color: #34d399;
+            font-weight: 600;
+        }
+        
+        .side-sell {
+            color: #f87171;
+            font-weight: 600;
+        }
+        
+        .btn-cancel {
+            padding: 0.375rem 0.875rem;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 0.85rem;
+        }
+        
+        .btn-cancel:hover {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: #f87171;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 3rem 2rem;
+            color: #94a3b8;
+        }
+        
+        .empty-state h3 {
+            color: #cbd5e1;
+            margin-bottom: 0.5rem;
+        }
+        
+        .messages {
+            margin-bottom: 1rem;
+        }
+        
+        .alert {
+            padding: 1rem 1.25rem;
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+        }
+        
+        .alert-success {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+        }
+        
+        .alert-error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+        }
+        
+        @media (max-width: 768px) {
+            .order-table {
+                font-size: 0.85rem;
+            }
+            
+            .order-table th,
+            .order-table td {
+                padding: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">DeFi Tome</div>
+            <nav>
+                <a href="{% url 'home' %}">Home</a>
+                <a href="{% url 'explorer' %}">Explorer</a>
+                <a href="{% url 'marketplace' %}">Listings</a>
+                <a href="{% url 'dex_orderbook' %}">DEX</a>
+                <a href="{% url 'my_orders' %}">My Orders</a>
+            </nav>
+        </header>
+        
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+                <div class="alert alert-{% if message.tags == 'error' %}error{% elif message.tags == 'success' %}success{% else %}info{% endif %}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        <div class="page-header">
+            <h1 class="page-title">My Orders</h1>
+            <a href="{% url 'dex_orderbook' %}" class="btn-nav">← Back to DEX</a>
+        </div>
+        
+        <!-- Active Limit Orders -->
+        <div class="section">
+            <h2 class="section-title">📋 Active Limit Orders</h2>
+            {% if limit_orders %}
+                <table class="order-table">
+                    <thead>
+                        <tr>
+                            <th>Pair</th>
+                            <th>Side</th>
+                            <th>Price</th>
+                            <th>Quantity</th>
+                            <th>Filled</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for order in limit_orders %}
+                        <tr>
+                            <td>{{ order.trading_pair.base_token }}/{{ order.trading_pair.quote_token }}</td>
+                            <td><span class="side-{{ order.side }}">{{ order.side|upper }}</span></td>
+                            <td>{{ order.price }}</td>
+                            <td>{{ order.quantity }}</td>
+                            <td>{{ order.filled_quantity }}</td>
+                            <td><span class="status-badge status-{{ order.status }}">{{ order.status|upper }}</span></td>
+                            <td>{{ order.created_at|date:"M d, H:i" }}</td>
+                            <td>
+                                {% if order.status == 'pending' or order.status == 'partial' %}
+                                <form method="post" action="{% url 'cancel_order' order.id %}" style="display: inline;">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn-cancel">Cancel</button>
+                                </form>
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <div class="empty-state">
+                    <h3>No Active Limit Orders</h3>
+                    <p>Place a limit order on the DEX to see it here</p>
+                </div>
+            {% endif %}
+        </div>
+        
+        <!-- Stop-Loss Orders -->
+        <div class="section">
+            <h2 class="section-title">⚡ Stop-Loss Orders</h2>
+            {% if stop_loss_orders %}
+                <table class="order-table">
+                    <thead>
+                        <tr>
+                            <th>Pair</th>
+                            <th>Side</th>
+                            <th>Trigger Price</th>
+                            <th>Quantity</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for order in stop_loss_orders %}
+                        <tr>
+                            <td>{{ order.trading_pair.base_token }}/{{ order.trading_pair.quote_token }}</td>
+                            <td><span class="side-{{ order.side }}">{{ order.side|upper }}</span></td>
+                            <td>{{ order.trigger_price }}</td>
+                            <td>{{ order.quantity }}</td>
+                            <td><span class="status-badge status-{{ order.status }}">{{ order.status|upper }}</span></td>
+                            <td>{{ order.created_at|date:"M d, H:i" }}</td>
+                            <td>
+                                {% if order.status == 'pending' %}
+                                <form method="post" action="{% url 'cancel_stop_loss' order.id %}" style="display: inline;">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn-cancel">Cancel</button>
+                                </form>
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <div class="empty-state">
+                    <h3>No Stop-Loss Orders</h3>
+                    <p>Place a stop-loss order on the DEX to protect your trades</p>
+                </div>
+            {% endif %}
+        </div>
+        
+        <!-- Market Orders History -->
+        <div class="section">
+            <h2 class="section-title">⚡ Market Orders</h2>
+            {% if market_orders %}
+                <table class="order-table">
+                    <thead>
+                        <tr>
+                            <th>Pair</th>
+                            <th>Side</th>
+                            <th>Quantity</th>
+                            <th>Executed Price</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for order in market_orders %}
+                        <tr>
+                            <td>{{ order.trading_pair.base_token }}/{{ order.trading_pair.quote_token }}</td>
+                            <td><span class="side-{{ order.side }}">{{ order.side|upper }}</span></td>
+                            <td>{{ order.quantity }}</td>
+                            <td>{{ order.executed_price|default:"-" }}</td>
+                            <td><span class="status-badge status-{{ order.status }}">{{ order.status|upper }}</span></td>
+                            <td>{{ order.created_at|date:"M d, H:i" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <div class="empty-state">
+                    <h3>No Market Orders</h3>
+                    <p>Execute a market order on the DEX for instant trading</p>
+                </div>
+            {% endif %}
+        </div>
+        
+        <!-- Trade History -->
+        <div class="section">
+            <h2 class="section-title">📊 Trade History</h2>
+            {% if trade_history %}
+                <table class="order-table">
+                    <thead>
+                        <tr>
+                            <th>Pair</th>
+                            <th>Type</th>
+                            <th>Price</th>
+                            <th>Quantity</th>
+                            <th>Counterparty</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for trade in trade_history %}
+                        <tr>
+                            <td>{{ trade.trading_pair.base_token }}/{{ trade.trading_pair.quote_token }}</td>
+                            <td>
+                                {% if trade.buyer == user %}
+                                <span class="side-buy">BUY</span>
+                                {% else %}
+                                <span class="side-sell">SELL</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ trade.price }}</td>
+                            <td>{{ trade.quantity }}</td>
+                            <td>
+                                {% if trade.buyer == user %}
+                                {{ trade.seller.username }}
+                                {% else %}
+                                {{ trade.buyer.username }}
+                                {% endif %}
+                            </td>
+                            <td>{{ trade.created_at|date:"M d, H:i" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <div class="empty-state">
+                    <h3>No Trade History</h3>
+                    <p>Your executed trades will appear here</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>
