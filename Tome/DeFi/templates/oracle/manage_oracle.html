@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Oracle - DeFi Tome</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root, .theme-dark, .theme- {
+            --bg-gradient-start: #0f172a;
+            --bg-gradient-end: #1e293b;
+            --text-primary: #e2e8f0;
+            --text-secondary: #cbd5e1;
+            --text-muted: #94a3b8;
+            --border-color: rgba(148, 163, 184, 0.2);
+            --card-bg: rgba(30, 41, 59, 0.8);
+            --accent-primary: #3b82f6;
+            --accent-secondary: #8b5cf6;
+            --accent-light: #60a5fa;
+        }
+        
+        body.theme-light {
+            --bg-gradient-start: #f8fafc;
+            --bg-gradient-end: #e2e8f0;
+            --text-primary: #0f172a;
+            --text-secondary: #334155;
+            --text-muted: #64748b;
+            --border-color: rgba(15, 23, 42, 0.2);
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --accent-primary: #3b82f6;
+            --accent-secondary: #8b5cf6;
+            --accent-light: #2563eb;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 2rem;
+            transition: color 0.3s;
+        }
+        
+        nav a:hover {
+            color: var(--accent-primary);
+        }
+        
+        .header-section {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .header-section h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            color: var(--accent-light);
+        }
+        
+        .section {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .section h2 {
+            color: var(--accent-light);
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        
+        input, textarea {
+            width: 100%;
+            padding: 0.75rem;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 1rem;
+        }
+        
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+        
+        .btn {
+            padding: 0.75rem 2rem;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
+        }
+        
+        .btn-small {
+            padding: 0.5rem 1rem;
+            font-size: 0.9rem;
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+        }
+        
+        .oracle-list {
+            display: grid;
+            gap: 1rem;
+        }
+        
+        .oracle-item {
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 8px;
+            padding: 1.5rem;
+            border: 1px solid var(--border-color);
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 1rem;
+            align-items: center;
+        }
+        
+        .oracle-info .name {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 1.1rem;
+            margin-bottom: 0.25rem;
+        }
+        
+        .oracle-info .address {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-family: monospace;
+            margin-bottom: 0.5rem;
+        }
+        
+        .oracle-info .description {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+        
+        .oracle-stats {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+        
+        .oracle-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        
+        .status-badge {
+            padding: 0.3rem 0.7rem;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-align: center;
+        }
+        
+        .status-active {
+            background: rgba(34, 197, 94, 0.2);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        
+        .status-inactive {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+        
+        .messages {
+            margin-bottom: 1.5rem;
+        }
+        
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        
+        .alert-success {
+            background: rgba(34, 197, 94, 0.1);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        
+        .alert-error {
+            background: rgba(239, 68, 68, 0.1);
+            color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 1.5rem;
+            padding: 0.75rem 1.5rem;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+        
+        .back-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
+        }
+    </style>
+</head>
+<body class="theme-{{ user_theme }}">
+    <div class="container">
+        <header>
+            <div class="logo">DeFi Tome Oracle</div>
+            <nav>
+                <a href="{% url 'home' %}">Home</a>
+                <a href="{% url 'price_feeds' %}">Price Feeds</a>
+            </nav>
+        </header>
+        
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        <div class="header-section">
+            <h1>Manage Oracle Sources</h1>
+            <p style="color: var(--text-muted);">Register new oracle sources and manage existing ones</p>
+        </div>
+        
+        <div class="section">
+            <h2>Register New Oracle Source</h2>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="register">
+                
+                <div class="form-group">
+                    <label for="name">Oracle Name *</label>
+                    <input type="text" id="name" name="name" required 
+                           placeholder="Enter a friendly name for your oracle">
+                </div>
+                
+                <div class="form-group">
+                    <label for="oracle_address">Oracle Address *</label>
+                    <input type="text" id="oracle_address" name="oracle_address" required 
+                           placeholder="Enter your oracle address (e.g., 0x1234...)">
+                </div>
+                
+                <div class="form-group">
+                    <label for="description">Description</label>
+                    <textarea id="description" name="description" rows="3" 
+                              placeholder="Optional description of your oracle source"></textarea>
+                </div>
+                
+                <button type="submit" class="btn">Register Oracle</button>
+            </form>
+        </div>
+        
+        <div class="section">
+            <h2>Registered Oracle Sources</h2>
+            {% if oracle_sources %}
+            <div class="oracle-list">
+                {% for source in oracle_sources %}
+                <div class="oracle-item">
+                    <div class="oracle-info">
+                        <div class="name">{{ source.name }}</div>
+                        <div class="address">{{ source.oracle_address }}</div>
+                        {% if source.description %}
+                        <div class="description">{{ source.description }}</div>
+                        {% endif %}
+                        <div class="oracle-stats">
+                            <span>⭐ Reputation: {{ source.reputation_score }}</span>
+                            <span>📊 Submissions: {{ source.total_submissions }}</span>
+                            <span>📅 Created: {{ source.created_at|date:"Y-m-d" }}</span>
+                        </div>
+                    </div>
+                    <div class="oracle-actions">
+                        <span class="status-badge {% if source.is_active %}status-active{% else %}status-inactive{% endif %}">
+                            {% if source.is_active %}Active{% else %}Inactive{% endif %}
+                        </span>
+                        <form method="post" style="margin: 0;">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="toggle">
+                            <input type="hidden" name="oracle_address" value="{{ source.oracle_address }}">
+                            <button type="submit" class="btn btn-small">
+                                {% if source.is_active %}Deactivate{% else %}Activate{% endif %}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="no-data">
+                <p>No oracle sources registered yet.</p>
+            </div>
+            {% endif %}
+        </div>
+        
+        <a href="{% url 'price_feeds' %}" class="back-link">← Back to Price Feeds</a>
+    </div>
+</body>
+</html>

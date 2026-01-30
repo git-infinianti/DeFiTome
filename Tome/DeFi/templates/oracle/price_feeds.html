@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Price Feeds - DeFi Tome Oracle Network</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        /* Theme variables */
+        :root, .theme-dark, .theme- {
+            --bg-gradient-start: #0f172a;
+            --bg-gradient-end: #1e293b;
+            --text-primary: #e2e8f0;
+            --text-secondary: #cbd5e1;
+            --text-muted: #94a3b8;
+            --border-color: rgba(148, 163, 184, 0.2);
+            --card-bg: rgba(30, 41, 59, 0.8);
+            --card-bg-hover: rgba(59, 130, 246, 0.05);
+            --accent-primary: #3b82f6;
+            --accent-secondary: #8b5cf6;
+            --accent-light: #60a5fa;
+        }
+        
+        body.theme-light {
+            --bg-gradient-start: #f8fafc;
+            --bg-gradient-end: #e2e8f0;
+            --text-primary: #0f172a;
+            --text-secondary: #334155;
+            --text-muted: #64748b;
+            --border-color: rgba(15, 23, 42, 0.2);
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --card-bg-hover: rgba(59, 130, 246, 0.05);
+            --accent-primary: #3b82f6;
+            --accent-secondary: #8b5cf6;
+            --accent-light: #2563eb;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 2rem;
+            transition: color 0.3s;
+        }
+        
+        nav a:hover {
+            color: var(--accent-primary);
+        }
+        
+        .header-section {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .header-section h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, var(--accent-light), #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .header-section p {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: all 0.3s;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
+        }
+        
+        .btn-secondary {
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid var(--accent-primary);
+        }
+        
+        .prices-section {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .prices-section h2 {
+            color: var(--accent-light);
+            font-size: 1.8rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .price-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .price-card {
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 10px;
+            padding: 1.5rem;
+            border: 1px solid var(--border-color);
+            transition: all 0.3s;
+        }
+        
+        .price-card:hover {
+            border-color: var(--accent-primary);
+            transform: translateY(-2px);
+        }
+        
+        .price-card h3 {
+            color: var(--accent-light);
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .price-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #4ade80;
+            margin-bottom: 1rem;
+        }
+        
+        .price-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 6px;
+        }
+        
+        .price-info label {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+        
+        .price-info span {
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+        
+        .confidence-badge {
+            display: inline-block;
+            padding: 0.3rem 0.7rem;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        
+        .confidence-high {
+            background: rgba(34, 197, 94, 0.2);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        
+        .confidence-medium {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(251, 191, 36, 0.3);
+        }
+        
+        .confidence-low {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        
+        .oracle-sources {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .oracle-sources h2 {
+            color: var(--accent-light);
+            font-size: 1.8rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .oracle-list {
+            display: grid;
+            gap: 1rem;
+        }
+        
+        .oracle-item {
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 8px;
+            padding: 1rem;
+            border: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .oracle-item .name {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .oracle-item .address {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+        
+        .oracle-item .reputation {
+            color: var(--accent-light);
+            font-weight: 600;
+        }
+        
+        .status-badge {
+            padding: 0.3rem 0.7rem;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        
+        .status-active {
+            background: rgba(34, 197, 94, 0.2);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        
+        .status-inactive {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+        
+        .messages {
+            margin-bottom: 1.5rem;
+        }
+        
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        
+        .alert-success {
+            background: rgba(34, 197, 94, 0.1);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        
+        .alert-error {
+            background: rgba(239, 68, 68, 0.1);
+            color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 1.5rem;
+            padding: 0.75rem 1.5rem;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+        
+        .back-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
+        }
+    </style>
+</head>
+<body class="theme-{{ user_theme }}">
+    <div class="container">
+        <header>
+            <div class="logo">DeFi Tome Oracle</div>
+            <nav>
+                <a href="{% url 'home' %}">Home</a>
+                <a href="{% url 'testnet_home' %}">DeFi</a>
+                <a href="{% url 'price_feeds' %}">Price Feeds</a>
+                <a href="{% url 'explorer' %}">Explorer</a>
+                <a href="{% url 'settings' %}">Settings</a>
+            </nav>
+        </header>
+        
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        <div class="header-section">
+            <h1>🔮 Price Feeds Oracle Network</h1>
+            <p>Decentralized price feeds powered by a network of oracle nodes (Testnet v1)</p>
+        </div>
+        
+        <div class="action-buttons">
+            <a href="{% url 'submit_price' %}" class="btn">Submit Price Data</a>
+            <a href="{% url 'manage_oracle' %}" class="btn btn-secondary">Manage Oracle</a>
+        </div>
+        
+        <div class="prices-section">
+            <h2>Current Token Prices</h2>
+            {% if latest_prices %}
+            <div class="price-grid">
+                {% for token, price in latest_prices.items %}
+                <div class="price-card">
+                    <h3>{{ token }}</h3>
+                    <div class="price-value">${{ price.aggregated_price }}</div>
+                    <div class="price-info">
+                        <label>Median:</label>
+                        <span>${{ price.median_price }}</span>
+                    </div>
+                    <div class="price-info">
+                        <label>Range:</label>
+                        <span>${{ price.min_price }} - ${{ price.max_price }}</span>
+                    </div>
+                    <div class="price-info">
+                        <label>Sources:</label>
+                        <span>{{ price.num_sources }} oracle(s)</span>
+                    </div>
+                    <div class="price-info">
+                        <label>Confidence:</label>
+                        <span>
+                            {% if price.confidence_score >= 80 %}
+                            <span class="confidence-badge confidence-high">{{ price.confidence_score }}%</span>
+                            {% elif price.confidence_score >= 50 %}
+                            <span class="confidence-badge confidence-medium">{{ price.confidence_score }}%</span>
+                            {% else %}
+                            <span class="confidence-badge confidence-low">{{ price.confidence_score }}%</span>
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="price-info">
+                        <label>Updated:</label>
+                        <span>{{ price.timestamp|timesince }} ago</span>
+                    </div>
+                    <a href="{% url 'price_history' price.token_symbol %}" class="btn btn-secondary" style="margin-top: 1rem; width: 100%; text-align: center;">View History</a>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="no-data">
+                <p>No price data available yet. Be the first to submit price feeds!</p>
+            </div>
+            {% endif %}
+        </div>
+        
+        <div class="oracle-sources">
+            <h2>Active Oracle Sources</h2>
+            {% if oracle_sources %}
+            <div class="oracle-list">
+                {% for source in oracle_sources %}
+                <div class="oracle-item">
+                    <div>
+                        <div class="name">{{ source.name }}</div>
+                        <div class="address">{{ source.oracle_address }}</div>
+                    </div>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <div class="reputation">⭐ {{ source.reputation_score }}</div>
+                        <div style="color: var(--text-muted); font-size: 0.9rem;">{{ source.total_submissions }} submissions</div>
+                        <span class="status-badge status-active">Active</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="no-data">
+                <p>No oracle sources registered yet.</p>
+            </div>
+            {% endif %}
+        </div>
+        
+        <a href="{% url 'testnet_home' %}" class="back-link">← Back to DeFi</a>
+    </div>
+</body>
+</html>

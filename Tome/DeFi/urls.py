@@ -14,4 +14,8 @@ urlpatterns = [
     path('p2p/my-offers/', views.my_swap_offers, name='my_swap_offers'),
     path('p2p/available/', views.available_swap_offers, name='available_swap_offers'),
     path('p2p/history/', views.my_swap_history, name='my_swap_history'),
+    path('oracle/price-feeds/', views.price_feeds, name='price_feeds'),
+    path('oracle/submit-price/', views.submit_price, name='submit_price'),
+    path('oracle/price-history/<str:token_symbol>/', views.price_history, name='price_history'),
+    path('oracle/manage/', views.manage_oracle, name='manage_oracle'),
 ]
