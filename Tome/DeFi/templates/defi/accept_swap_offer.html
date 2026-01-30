@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeFi Tome - Accept Swap Offer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+        
+        .confirmation-card {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+            padding: 2.5rem;
+        }
+        
+        .page-title {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        
+        .page-title h1 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .swap-summary {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 8px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .swap-visual {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+        }
+        
+        .token-box {
+            flex: 1;
+            text-align: center;
+        }
+        
+        .token-amount {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #60a5fa;
+        }
+        
+        .token-symbol {
+            font-size: 1rem;
+            color: #94a3b8;
+            margin-top: 0.5rem;
+        }
+        
+        .swap-arrow {
+            font-size: 2rem;
+            color: #8b5cf6;
+            margin: 0 1.5rem;
+        }
+        
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+        }
+        
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+        
+        .detail-label {
+            color: #94a3b8;
+        }
+        
+        .detail-value {
+            color: #cbd5e1;
+            font-weight: 500;
+        }
+        
+        .warning-box {
+            background: rgba(234, 179, 8, 0.1);
+            border: 1px solid rgba(234, 179, 8, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 2rem;
+            color: #fde047;
+        }
+        
+        .form-actions {
+            display: flex;
+            gap: 1rem;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 0.875rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #2563eb, #7c3aed);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(59, 130, 246, 0.3);
+        }
+        
+        .btn-secondary {
+            background: rgba(51, 65, 85, 0.8);
+            color: #cbd5e1;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(71, 85, 105, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">DeFi Tome</div>
+        
+        <div class="confirmation-card">
+            <div class="page-title">
+                <h1>Confirm Swap</h1>
+            </div>
+            
+            <div class="swap-summary">
+                <div class="swap-visual">
+                    <div class="token-box">
+                        <div class="token-amount">{{ swap_offer.request_amount }}</div>
+                        <div class="token-symbol">{{ swap_offer.request_token }}</div>
+                        <div style="color: #94a3b8; margin-top: 0.5rem; font-size: 0.9rem;">You Give</div>
+                    </div>
+                    <div class="swap-arrow">⇄</div>
+                    <div class="token-box">
+                        <div class="token-amount">{{ swap_offer.offer_amount }}</div>
+                        <div class="token-symbol">{{ swap_offer.offer_token }}</div>
+                        <div style="color: #94a3b8; margin-top: 0.5rem; font-size: 0.9rem;">You Get</div>
+                    </div>
+                </div>
+                
+                <div class="detail-row">
+                    <span class="detail-label">Counterparty:</span>
+                    <span class="detail-value">{{ swap_offer.initiator.username }}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Exchange Rate:</span>
+                    <span class="detail-value">1 {{ swap_offer.request_token }} = {{ swap_offer.offer_amount|floatformat:8 }} {{ swap_offer.offer_token }}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Expires:</span>
+                    <span class="detail-value">{{ swap_offer.expires_at|date:"M d, Y H:i" }}</span>
+                </div>
+            </div>
+            
+            <div class="warning-box">
+                ⚠️ Please review the swap details carefully. Once accepted, the swap will be executed immediately and cannot be reversed.
+            </div>
+            
+            <form method="post">
+                {% csrf_token %}
+                <div class="form-actions">
+                    <a href="{% url 'available_swap_offers' %}" class="btn btn-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary">Confirm & Execute Swap</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

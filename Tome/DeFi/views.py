@@ -2,10 +2,12 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
+from django.utils import timezone
+from datetime import timedelta
 from decimal import Decimal
 import uuid
-from .models import TestnetConfig, LiquidityPool, LiquidityPosition, SwapTransaction
+from .models import TestnetConfig, LiquidityPool, LiquidityPosition, SwapTransaction, SwapOffer, SwapEscrow, P2PSwapTransaction
 
 # Create your views here.
 
@@ -256,3 +258,230 @@ def transactions(request):
         'transactions': user_swaps,
     }
     return render(request, 'testnet/transactions.html', context)
+
+@login_required
+def create_swap_offer(request, listing_id=None):
+    """Create a P2P swap offer"""
+    marketplace_listing = None
+    initial_data = {}
+    
+    if listing_id:
+        from Marketplace.models import MarketplaceListing
+        try:
+            marketplace_listing = MarketplaceListing.objects.get(id=listing_id)
+            if not marketplace_listing.allow_swaps:
+                messages.error(request, 'This listing does not accept swap offers.')
+                return redirect('marketplace')
+            # Pre-populate with listing information
+            initial_data = {
+                'counterparty': marketplace_listing.seller.username,
+                'preferred_token': marketplace_listing.preferred_swap_token
+            }
+        except MarketplaceListing.DoesNotExist:
+            messages.error(request, 'Listing not found.')
+            return redirect('marketplace')
+    
+    if request.method == 'POST':
+        offer_token = request.POST.get('offer_token', '').strip().upper()
+        offer_amount = request.POST.get('offer_amount', '').strip()
+        request_token = request.POST.get('request_token', '').strip().upper()
+        request_amount = request.POST.get('request_amount', '').strip()
+        counterparty_username = request.POST.get('counterparty', '').strip()
+        
+        # Validate inputs
+        if not all([offer_token, offer_amount, request_token, request_amount]):
+            messages.error(request, 'All fields are required.')
+            return redirect('create_swap_offer')
+        
+        # Validate token symbols are different
+        if offer_token == request_token:
+            messages.error(request, 'Cannot swap the same token for itself.')
+            return redirect('create_swap_offer')
+        
+        # Validate token format (alphanumeric only)
+        if not offer_token.isalnum() or not request_token.isalnum():
+            messages.error(request, 'Token symbols must be alphanumeric only.')
+            return redirect('create_swap_offer')
+        
+        try:
+            offer_amount = Decimal(offer_amount)
+            request_amount = Decimal(request_amount)
+            
+            if offer_amount <= 0 or request_amount <= 0:
+                messages.error(request, 'Amounts must be greater than zero.')
+                return redirect('create_swap_offer')
+        except (ValueError, InvalidOperation):
+            messages.error(request, 'Invalid amount format.')
+            return redirect('create_swap_offer')
+        
+        # Get counterparty if specified
+        counterparty = None
+        if counterparty_username:
+            try:
+                from django.contrib.auth.models import User
+                counterparty = User.objects.get(username=counterparty_username)
+                if counterparty == request.user:
+                    messages.error(request, 'Cannot create swap offer with yourself.')
+                    return redirect('create_swap_offer')
+            except User.DoesNotExist:
+                messages.error(request, f'User {counterparty_username} not found.')
+                return redirect('create_swap_offer')
+        
+        # Create swap offer
+        expires_at = timezone.now() + timedelta(days=7)
+        swap_offer = SwapOffer.objects.create(
+            initiator=request.user,
+            counterparty=counterparty,
+            marketplace_listing=marketplace_listing,
+            offer_token=offer_token,
+            offer_amount=offer_amount,
+            request_token=request_token,
+            request_amount=request_amount,
+            expires_at=expires_at,
+            escrow_id=f'escrow-{uuid.uuid4()}'
+        )
+        
+        messages.success(request, 'Swap offer created successfully!')
+        return redirect('my_swap_offers')
+    
+    context = {
+        'initial_data': initial_data,
+        'marketplace_listing': marketplace_listing
+    }
+    return render(request, 'defi/create_swap_offer.html', context)
+
+@login_required
+def accept_swap_offer(request, offer_id):
+    """Accept a P2P swap offer"""
+    swap_offer = get_object_or_404(SwapOffer, id=offer_id)
+    
+    # Validate offer can be accepted
+    if swap_offer.status != 'pending':
+        messages.error(request, 'This swap offer is no longer available.')
+        return redirect('available_swap_offers')
+    
+    if swap_offer.expires_at < timezone.now():
+        swap_offer.status = 'expired'
+        swap_offer.save()
+        messages.error(request, 'This swap offer has expired.')
+        return redirect('available_swap_offers')
+    
+    if swap_offer.counterparty and swap_offer.counterparty != request.user:
+        messages.error(request, 'This swap offer is not available to you.')
+        return redirect('available_swap_offers')
+    
+    if swap_offer.initiator == request.user:
+        messages.error(request, 'You cannot accept your own swap offer.')
+        return redirect('available_swap_offers')
+    
+    if request.method == 'POST':
+        try:
+            with transaction.atomic():
+                # Update swap offer
+                swap_offer.counterparty = request.user
+                swap_offer.status = 'accepted'
+                swap_offer.save()
+                
+                # Create escrow
+                SwapEscrow.objects.create(
+                    swap_offer=swap_offer,
+                    initiator_locked=True,
+                    counterparty_locked=True,
+                    initiator_amount=swap_offer.offer_amount,
+                    counterparty_amount=swap_offer.request_amount
+                )
+                
+                # Execute the swap
+                swap_offer.status = 'completed'
+                swap_offer.save()
+                
+                # Create transaction record
+                P2PSwapTransaction.objects.create(
+                    swap_offer=swap_offer,
+                    initiator=swap_offer.initiator,
+                    counterparty=request.user,
+                    initiator_token=swap_offer.offer_token,
+                    initiator_amount=swap_offer.offer_amount,
+                    counterparty_token=swap_offer.request_token,
+                    counterparty_amount=swap_offer.request_amount,
+                    tx_hash=f'p2p-{uuid.uuid4()}'
+                )
+                
+                # Update escrow
+                escrow = swap_offer.escrow
+                escrow.released_at = timezone.now()
+                escrow.save()
+                
+                messages.success(request, f'Swap completed! You exchanged {swap_offer.request_amount} {swap_offer.request_token} for {swap_offer.offer_amount} {swap_offer.offer_token}.')
+                return redirect('my_swap_history')
+        except Exception as e:
+            messages.error(request, f'Error executing swap: {str(e)}')
+            return redirect('available_swap_offers')
+    
+    context = {
+        'swap_offer': swap_offer,
+    }
+    return render(request, 'defi/accept_swap_offer.html', context)
+
+@login_required
+def cancel_swap_offer(request, offer_id):
+    """Cancel a P2P swap offer"""
+    swap_offer = get_object_or_404(SwapOffer, id=offer_id, initiator=request.user)
+    
+    if swap_offer.status != 'pending':
+        messages.error(request, 'Only pending offers can be cancelled.')
+        return redirect('my_swap_offers')
+    
+    if request.method == 'POST':
+        swap_offer.status = 'cancelled'
+        swap_offer.save()
+        messages.success(request, 'Swap offer cancelled successfully.')
+        return redirect('my_swap_offers')
+    
+    context = {
+        'swap_offer': swap_offer,
+    }
+    return render(request, 'defi/cancel_swap_offer.html', context)
+
+@login_required
+def my_swap_offers(request):
+    """Display user's created swap offers"""
+    offers = SwapOffer.objects.filter(initiator=request.user).order_by('-created_at')
+    
+    context = {
+        'offers': offers,
+    }
+    return render(request, 'defi/my_swap_offers.html', context)
+
+@login_required
+def available_swap_offers(request):
+    """Display available swap offers for the user"""
+    # Show offers that are:
+    # 1. Pending
+    # 2. Not expired
+    # 3. Either no counterparty or counterparty is current user
+    # 4. Not created by current user
+    offers = SwapOffer.objects.filter(
+        Q(status='pending'),
+        Q(expires_at__gt=timezone.now()),
+        Q(counterparty__isnull=True) | Q(counterparty=request.user)
+    ).exclude(
+        initiator=request.user
+    ).order_by('-created_at')
+    
+    context = {
+        'offers': offers,
+    }
+    return render(request, 'defi/available_swap_offers.html', context)
+
+@login_required
+def my_swap_history(request):
+    """Display user's completed P2P swap history"""
+    swaps = P2PSwapTransaction.objects.filter(
+        Q(initiator=request.user) | Q(counterparty=request.user)
+    ).order_by('-completed_at')
+    
+    context = {
+        'swaps': swaps,
+    }
+    return render(request, 'defi/my_swap_history.html', context)

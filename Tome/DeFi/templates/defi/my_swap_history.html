@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeFi Tome - Swap History</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        nav a {
+            color: #cbd5e1;
+            text-decoration: none;
+            margin-left: 2rem;
+            transition: color 0.3s;
+        }
+        
+        nav a:hover {
+            color: #3b82f6;
+        }
+        
+        .page-title {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+        
+        .page-title h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .swaps-list {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        .swap-card {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            transition: all 0.3s;
+        }
+        
+        .swap-card:hover {
+            border-color: #3b82f6;
+            transform: translateY(-2px);
+        }
+        
+        .swap-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        
+        .swap-date {
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+        
+        .swap-badge {
+            background: rgba(34, 197, 94, 0.2);
+            color: #86efac;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        
+        .swap-visual {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+        
+        .token-box {
+            flex: 1;
+            text-align: center;
+        }
+        
+        .token-amount {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #60a5fa;
+        }
+        
+        .token-symbol {
+            font-size: 0.9rem;
+            color: #94a3b8;
+        }
+        
+        .role-label {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-top: 0.25rem;
+        }
+        
+        .swap-arrow {
+            font-size: 1.5rem;
+            color: #8b5cf6;
+            margin: 0 1rem;
+        }
+        
+        .swap-details {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.75rem;
+        }
+        
+        .detail-item {
+            font-size: 0.9rem;
+        }
+        
+        .detail-label {
+            color: #94a3b8;
+        }
+        
+        .detail-value {
+            color: #cbd5e1;
+        }
+        
+        .tx-hash {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(148, 163, 184, 0.1);
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+        }
+        
+        .empty-state h2 {
+            color: #60a5fa;
+            margin-bottom: 1rem;
+            font-size: 1.8rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">DeFi Tome</div>
+            <nav>
+                <a href="{% url 'marketplace' %}">Marketplace</a>
+                <a href="{% url 'my_swap_offers' %}">My Offers</a>
+                <a href="{% url 'available_swap_offers' %}">Available Swaps</a>
+                <a href="{% url 'my_swap_history' %}">Swap History</a>
+            </nav>
+        </header>
+        
+        <section class="page-title">
+            <h1>My Swap History</h1>
+        </section>
+        
+        {% if swaps %}
+            <div class="swaps-list">
+                {% for swap in swaps %}
+                    <div class="swap-card">
+                        <div class="swap-header">
+                            <div class="swap-date">{{ swap.completed_at|date:"M d, Y H:i" }}</div>
+                            <div class="swap-badge">✓ Completed</div>
+                        </div>
+                        
+                        <div class="swap-visual">
+                            {% if swap.initiator == request.user %}
+                                <div class="token-box">
+                                    <div class="token-amount">{{ swap.initiator_amount }}</div>
+                                    <div class="token-symbol">{{ swap.initiator_token }}</div>
+                                    <div class="role-label">You Gave</div>
+                                </div>
+                                <div class="swap-arrow">→</div>
+                                <div class="token-box">
+                                    <div class="token-amount">{{ swap.counterparty_amount }}</div>
+                                    <div class="token-symbol">{{ swap.counterparty_token }}</div>
+                                    <div class="role-label">You Received</div>
+                                </div>
+                            {% else %}
+                                <div class="token-box">
+                                    <div class="token-amount">{{ swap.counterparty_amount }}</div>
+                                    <div class="token-symbol">{{ swap.counterparty_token }}</div>
+                                    <div class="role-label">You Gave</div>
+                                </div>
+                                <div class="swap-arrow">→</div>
+                                <div class="token-box">
+                                    <div class="token-amount">{{ swap.initiator_amount }}</div>
+                                    <div class="token-symbol">{{ swap.initiator_token }}</div>
+                                    <div class="role-label">You Received</div>
+                                </div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="swap-details">
+                            <div class="detail-item">
+                                <span class="detail-label">Counterparty: </span>
+                                <span class="detail-value">
+                                    {% if swap.initiator == request.user %}
+                                        {{ swap.counterparty.username }}
+                                    {% else %}
+                                        {{ swap.initiator.username }}
+                                    {% endif %}
+                                </span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Your Role: </span>
+                                <span class="detail-value">
+                                    {% if swap.initiator == request.user %}
+                                        Initiator
+                                    {% else %}
+                                        Acceptor
+                                    {% endif %}
+                                </span>
+                            </div>
+                        </div>
+                        
+                        {% if swap.tx_hash %}
+                            <div class="tx-hash">
+                                TX Hash: {{ swap.tx_hash }}
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state">
+                <h2>No Swap History Yet</h2>
+                <p>Your completed swaps will appear here</p>
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>

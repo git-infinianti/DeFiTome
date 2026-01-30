@@ -65,6 +65,10 @@ class MarketplaceListing(models.Model):
     quantity_available = models.PositiveIntegerField(default=1)
     listing_date = models.DateTimeField(auto_now_add=True)
     
+    # P2P swap fields
+    allow_swaps = models.BooleanField(default=True)
+    preferred_swap_token = models.CharField(max_length=10, blank=True, default='')
+    
     def __str__(self):
         return f"Listing of {self.item.title} by {self.seller.username}"
 

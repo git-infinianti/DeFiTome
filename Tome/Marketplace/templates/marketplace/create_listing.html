@@ -330,6 +330,33 @@
                     <div class="help-text">How many units are you listing?</div>
                 </div>
                 
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input 
+                            type="checkbox" 
+                            id="allow_swaps" 
+                            name="allow_swaps" 
+                            checked
+                            style="width: auto; margin-right: 0.5rem;"
+                        >
+                        <span>Allow Peer-to-Peer Swap Offers</span>
+                    </label>
+                    <div class="help-text">Enable other users to propose token swaps for this listing</div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="preferred_swap_token">Preferred Swap Token (Optional)</label>
+                    <input 
+                        type="text" 
+                        id="preferred_swap_token" 
+                        name="preferred_swap_token" 
+                        maxlength="10"
+                        placeholder="e.g., BTC, ETH"
+                        value="{{ preferred_swap_token|default:'' }}"
+                    >
+                    <div class="help-text">Specify a preferred token for swaps, or leave blank to accept any token</div>
+                </div>
+                
                 <div class="form-actions">
                     <a href="{% url 'marketplace' %}" class="btn btn-secondary">Cancel</a>
                     <button type="submit" class="btn btn-primary">Create Listing</button>

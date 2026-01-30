@@ -1,4 +1,4 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from decimal import Decimal, InvalidOperation
@@ -19,6 +19,15 @@ def create_listing(request):
         description = request.POST.get('description', '').strip()
         price = request.POST.get('price', '').strip()
         quantity = request.POST.get('quantity', '').strip()
+        allow_swaps = request.POST.get('allow_swaps') == 'on'
+        preferred_swap_token = request.POST.get('preferred_swap_token', '').strip().upper()
+        
+        # Validate preferred swap token format
+        if preferred_swap_token and not preferred_swap_token.isalnum():
+            messages.error(request, 'Preferred swap token must be alphanumeric only.')
+            return render(request, 'marketplace/create_listing.html', {
+                'title': title, 'description': description, 'price': price, 'quantity': quantity
+            })
         
         # Validate required fields
         if not title or not description or not price or not quantity:
@@ -70,10 +79,22 @@ def create_listing(request):
             item=item,
             seller=request.user,
             price=price_decimal,
-            quantity_available=quantity_int
+            quantity_available=quantity_int,
+            allow_swaps=allow_swaps,
+            preferred_swap_token=preferred_swap_token
         )
         
         messages.success(request, 'Listing created successfully!')
         return redirect('marketplace')
     
     return render(request, 'marketplace/create_listing.html')
+
+@login_required
+def listing_detail(request, listing_id):
+    """Display detailed view of a marketplace listing"""
+    listing = get_object_or_404(MarketplaceListing.objects.select_related('item', 'seller'), id=listing_id)
+    
+    context = {
+        'listing': listing,
+    }
+    return render(request, 'marketplace/listing_detail.html', context)

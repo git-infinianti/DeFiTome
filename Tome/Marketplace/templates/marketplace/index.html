@@ -263,7 +263,19 @@
                             </div>
                         </div>
                         
+                        {% if listing.allow_swaps %}
+                            <div style="margin-top: 0.75rem; padding: 0.5rem; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 6px; text-align: center;">
+                                <span style="color: #a78bfa; font-size: 0.85rem;">💱 Swap Offers Accepted</span>
+                            </div>
+                        {% endif %}
+                        
                         <div class="listing-date">Listed on {{ listing.listing_date|date:"M d, Y" }}</div>
+                        
+                        <div style="margin-top: 1rem;">
+                            <a href="{% url 'listing_detail' listing.id %}" style="display: block; padding: 0.5rem; background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: white; text-decoration: none; border-radius: 8px; text-align: center; font-weight: 500; transition: all 0.3s;">
+                                View Details
+                            </a>
+                        </div>
                     </div>
                 {% endfor %}
             </div>

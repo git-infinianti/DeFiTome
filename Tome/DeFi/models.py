@@ -61,3 +61,69 @@ class SwapTransaction(models.Model):
     
     def __str__(self):
         return f"SwapTransaction({self.from_amount} {self.from_token} -> {self.to_amount} {self.to_token})"
+
+class SwapOffer(models.Model):
+    """P2P swap offer between two users"""
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('accepted', 'Accepted'),
+        ('completed', 'Completed'),
+        ('rejected', 'Rejected'),
+        ('cancelled', 'Cancelled'),
+        ('expired', 'Expired'),
+    ]
+    
+    initiator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='initiated_swaps')
+    counterparty = models.ForeignKey(User, on_delete=models.CASCADE, related_name='received_swaps', null=True, blank=True)
+    marketplace_listing = models.ForeignKey('Marketplace.MarketplaceListing', on_delete=models.CASCADE, related_name='swap_offers', null=True, blank=True)
+    
+    # What initiator offers
+    offer_token = models.CharField(max_length=10)
+    offer_amount = models.DecimalField(max_digits=20, decimal_places=8)
+    
+    # What initiator wants
+    request_token = models.CharField(max_length=10)
+    request_amount = models.DecimalField(max_digits=20, decimal_places=8)
+    
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    escrow_id = models.CharField(max_length=100, blank=True)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"SwapOffer({self.offer_amount} {self.offer_token} for {self.request_amount} {self.request_token})"
+
+class SwapEscrow(models.Model):
+    """Escrow for locked funds during P2P swap"""
+    swap_offer = models.OneToOneField(SwapOffer, on_delete=models.CASCADE, related_name='escrow')
+    initiator_locked = models.BooleanField(default=False)
+    counterparty_locked = models.BooleanField(default=False)
+    initiator_amount = models.DecimalField(max_digits=20, decimal_places=8)
+    counterparty_amount = models.DecimalField(max_digits=20, decimal_places=8)
+    created_at = models.DateTimeField(auto_now_add=True)
+    released_at = models.DateTimeField(null=True, blank=True)
+    
+    def __str__(self):
+        return f"SwapEscrow(offer={self.swap_offer.id}, initiator_locked={self.initiator_locked}, counterparty_locked={self.counterparty_locked})"
+    
+    @property
+    def is_fully_locked(self):
+        return self.initiator_locked and self.counterparty_locked
+
+class P2PSwapTransaction(models.Model):
+    """Completed P2P swap transaction record"""
+    swap_offer = models.OneToOneField(SwapOffer, on_delete=models.CASCADE, related_name='transaction')
+    initiator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='p2p_swaps_as_initiator')
+    counterparty = models.ForeignKey(User, on_delete=models.CASCADE, related_name='p2p_swaps_as_counterparty')
+    
+    initiator_token = models.CharField(max_length=10)
+    initiator_amount = models.DecimalField(max_digits=20, decimal_places=8)
+    counterparty_token = models.CharField(max_length=10)
+    counterparty_amount = models.DecimalField(max_digits=20, decimal_places=8)
+    
+    tx_hash = models.CharField(max_length=100, blank=True)
+    completed_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"P2PSwapTransaction({self.initiator.username} <-> {self.counterparty.username})"

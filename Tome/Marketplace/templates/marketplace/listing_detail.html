@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeFi Tome - {{ listing.item.title }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        nav a {
+            color: #cbd5e1;
+            text-decoration: none;
+            margin-left: 2rem;
+            transition: color 0.3s;
+        }
+        
+        nav a:hover {
+            color: #3b82f6;
+        }
+        
+        .listing-detail {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+            padding: 2.5rem;
+        }
+        
+        .listing-header {
+            margin-bottom: 2rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        
+        .listing-title {
+            font-size: 2rem;
+            color: #60a5fa;
+            margin-bottom: 0.5rem;
+        }
+        
+        .listing-seller {
+            font-size: 1rem;
+            color: #94a3b8;
+        }
+        
+        .listing-description {
+            margin-bottom: 2rem;
+            line-height: 1.6;
+            color: #cbd5e1;
+        }
+        
+        .listing-details {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .detail-box {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        
+        .detail-label {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            margin-bottom: 0.5rem;
+        }
+        
+        .detail-value {
+            font-size: 1.3rem;
+            color: #60a5fa;
+            font-weight: bold;
+        }
+        
+        .swap-info {
+            background: rgba(139, 92, 246, 0.1);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .swap-info-title {
+            font-size: 1.1rem;
+            color: #a78bfa;
+            margin-bottom: 0.5rem;
+        }
+        
+        .swap-info-text {
+            color: #cbd5e1;
+            font-size: 0.9rem;
+        }
+        
+        .actions {
+            display: flex;
+            gap: 1rem;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 0.875rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #2563eb, #7c3aed);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(59, 130, 246, 0.3);
+        }
+        
+        .btn-secondary {
+            background: rgba(51, 65, 85, 0.8);
+            color: #cbd5e1;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(71, 85, 105, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">DeFi Tome</div>
+            <nav>
+                <a href="{% url 'marketplace' %}">Marketplace</a>
+                <a href="{% url 'my_swap_offers' %}">My Offers</a>
+                <a href="{% url 'available_swap_offers' %}">Available Swaps</a>
+            </nav>
+        </header>
+        
+        <div class="listing-detail">
+            <div class="listing-header">
+                <h1 class="listing-title">{{ listing.item.title }}</h1>
+                <div class="listing-seller">Seller: {{ listing.seller.username }}</div>
+            </div>
+            
+            <div class="listing-description">
+                {{ listing.item.description }}
+            </div>
+            
+            <div class="listing-details">
+                <div class="detail-box">
+                    <div class="detail-label">Price</div>
+                    <div class="detail-value">{{ listing.price }} TOME</div>
+                </div>
+                <div class="detail-box">
+                    <div class="detail-label">Available Quantity</div>
+                    <div class="detail-value">{{ listing.quantity_available }}</div>
+                </div>
+                <div class="detail-box">
+                    <div class="detail-label">Listed On</div>
+                    <div class="detail-value" style="font-size: 1rem;">{{ listing.listing_date|date:"M d, Y" }}</div>
+                </div>
+                <div class="detail-box">
+                    <div class="detail-label">Swaps Allowed</div>
+                    <div class="detail-value" style="font-size: 1rem;">
+                        {% if listing.allow_swaps %}
+                            ✓ Yes
+                        {% else %}
+                            ✗ No
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            
+            {% if listing.allow_swaps %}
+                <div class="swap-info">
+                    <div class="swap-info-title">💱 Peer-to-Peer Swap Available</div>
+                    <div class="swap-info-text">
+                        This listing accepts swap offers. 
+                        {% if listing.preferred_swap_token %}
+                            Preferred token: <strong>{{ listing.preferred_swap_token }}</strong>
+                        {% else %}
+                            Open to all token offers.
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+            
+            <div class="actions">
+                <a href="{% url 'marketplace' %}" class="btn btn-secondary">Back to Marketplace</a>
+                {% if listing.allow_swaps and listing.seller != request.user %}
+                    <a href="{% url 'create_swap_offer_for_listing' listing.id %}" class="btn btn-primary">Propose Swap</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>
