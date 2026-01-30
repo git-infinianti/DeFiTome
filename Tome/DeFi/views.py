@@ -985,6 +985,7 @@ def repay_loan(request):
         try:
             with transaction.atomic():
                 loan = Loan.objects.select_for_update().get(id=loan_id, user=request.user, status='active')
+                pool = LendingPool.objects.select_for_update().get(id=loan.pool_id)
                 
                 total_debt = loan.total_debt
                 
@@ -1013,13 +1014,12 @@ def repay_loan(request):
                 )
                 
                 # Update pool totals
-                pool = loan.pool
                 pool.total_borrows -= principal_paid
                 pool.total_reserves += interest_paid
                 pool.save()
                 
                 # If fully repaid, mark as such
-                if loan.principal_amount == 0 and loan.accrued_interest == 0:
+                if loan.principal_amount <= Decimal('0.00000001') and loan.accrued_interest <= Decimal('0.00000001'):
                     loan.status = 'repaid'
                     loan.repaid_at = timezone.now()
                     messages.success(request, f'Loan fully repaid! {loan.collateral_amount} {loan.collateral_asset.token_symbol} collateral returned.')
@@ -1062,7 +1062,7 @@ def withdraw_deposit(request):
         try:
             with transaction.atomic():
                 deposit = Deposit.objects.select_for_update().get(id=deposit_id, user=request.user)
-                pool = deposit.pool
+                pool = LendingPool.objects.select_for_update().get(id=deposit.pool_id)
                 
                 # Check available balance
                 available = deposit.total_balance
@@ -1076,9 +1076,12 @@ def withdraw_deposit(request):
                     return redirect('manage_positions')
                 
                 # Withdraw from accrued interest first, then principal
+                withdrawn_interest = Decimal('0')
+                withdrawn_principal = Decimal('0')
+                
                 if amount <= deposit.accrued_interest:
+                    withdrawn_interest = amount
                     deposit.accrued_interest -= amount
-                    withdrawn_principal = Decimal('0')
                 else:
                     withdrawn_interest = deposit.accrued_interest
                     withdrawn_principal = amount - withdrawn_interest
@@ -1089,10 +1092,11 @@ def withdraw_deposit(request):
                 
                 # Update pool totals
                 pool.total_deposits -= withdrawn_principal
+                pool.total_reserves -= withdrawn_interest
                 pool.save()
                 
-                # If deposit is now zero, delete it
-                if deposit.total_balance == 0:
+                # If deposit is now effectively zero, delete it
+                if deposit.total_balance <= Decimal('0.00000001'):
                     deposit.delete()
                 
                 messages.success(request, f'Successfully withdrew {amount:.8f} {pool.token_symbol}')
@@ -1110,12 +1114,21 @@ def withdraw_deposit(request):
 @login_required
 def manage_positions(request):
     """View and manage user's deposits and loans"""
+    from django.db.models import Sum
+    
     user_deposits = Deposit.objects.filter(user=request.user).select_related('pool')
     user_loans = Loan.objects.filter(user=request.user).exclude(status='repaid').select_related('pool', 'collateral_asset')
     
-    # Calculate totals
-    total_deposited = sum(d.total_balance for d in user_deposits)
-    total_borrowed = sum(l.total_debt for l in user_loans)
+    # Calculate totals using aggregation
+    deposits_agg = user_deposits.aggregate(
+        total=Sum('principal_amount') 
+    )
+    loans_agg = user_loans.aggregate(
+        total=Sum('principal_amount')
+    )
+    
+    total_deposited = deposits_agg['total'] or Decimal('0')
+    total_borrowed = loans_agg['total'] or Decimal('0')
     
     context = {
         'user_deposits': user_deposits,

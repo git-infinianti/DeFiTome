@@ -383,7 +383,7 @@
                     </div>
                     <div class="pool-info">
                         <label>Health Factor:</label>
-                        <span class="{% if loan.health_factor < 1.2 %}apy{% endif %}">{{ loan.health_factor|floatformat:2 }}</span>
+                        <span class="{% if loan.health_factor < 1.0 %}danger{% elif loan.health_factor < 1.2 %}warning{% else %}apy{% endif %}">{{ loan.health_factor|floatformat:2 }}</span>
                     </div>
                 </div>
                 {% endfor %}
