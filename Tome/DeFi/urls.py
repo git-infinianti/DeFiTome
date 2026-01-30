@@ -6,6 +6,7 @@ urlpatterns = [
     path('testnet/swap/', views.swap, name='swap'),
     path('testnet/liquidity/', views.liquidity, name='liquidity'),
     path('testnet/transactions/', views.transactions, name='transactions'),
+    path('testnet/claim-fees/', views.claim_fees, name='claim_fees'),
     path('p2p/create/', views.create_swap_offer, name='create_swap_offer'),
     path('p2p/create/<int:listing_id>/', views.create_swap_offer, name='create_swap_offer_for_listing'),
     path('p2p/accept/<int:offer_id>/', views.accept_swap_offer, name='accept_swap_offer'),
