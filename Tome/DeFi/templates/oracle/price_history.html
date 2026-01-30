@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ token_symbol }} Price History - DeFi Tome Oracle</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root, .theme-dark {
+            --bg-gradient-start: #0f172a;
+            --bg-gradient-end: #1e293b;
+            --text-primary: #e2e8f0;
+            --text-secondary: #cbd5e1;
+            --text-muted: #94a3b8;
+            --border-color: rgba(148, 163, 184, 0.2);
+            --card-bg: rgba(30, 41, 59, 0.8);
+            --accent-primary: #3b82f6;
+            --accent-secondary: #8b5cf6;
+            --accent-light: #60a5fa;
+        }
+        
+        body.theme-light {
+            --bg-gradient-start: #f8fafc;
+            --bg-gradient-end: #e2e8f0;
+            --text-primary: #0f172a;
+            --text-secondary: #334155;
+            --text-muted: #64748b;
+            --border-color: rgba(15, 23, 42, 0.2);
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --accent-primary: #3b82f6;
+            --accent-secondary: #8b5cf6;
+            --accent-light: #2563eb;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 2rem;
+            transition: color 0.3s;
+        }
+        
+        nav a:hover {
+            color: var(--accent-primary);
+        }
+        
+        .header-section {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .header-section h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            color: var(--accent-light);
+        }
+        
+        .section {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .section h2 {
+            color: var(--accent-light);
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        th {
+            color: var(--accent-light);
+            font-weight: 600;
+        }
+        
+        td {
+            color: var(--text-primary);
+        }
+        
+        tr:hover {
+            background: rgba(59, 130, 246, 0.05);
+        }
+        
+        .price-value {
+            font-weight: 600;
+            color: #4ade80;
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 1.5rem;
+            padding: 0.75rem 1.5rem;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+        
+        .back-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
+        }
+    </style>
+</head>
+<body class="theme-{{ user_theme }}">
+    <div class="container">
+        <header>
+            <div class="logo">DeFi Tome Oracle</div>
+            <nav>
+                <a href="{% url 'home' %}">Home</a>
+                <a href="{% url 'price_feeds' %}">Price Feeds</a>
+            </nav>
+        </header>
+        
+        <div class="header-section">
+            <h1>{{ token_symbol }} Price History</h1>
+            <p style="color: var(--text-muted);">Historical price data aggregated from oracle network</p>
+        </div>
+        
+        <div class="section">
+            <h2>Aggregated Price History</h2>
+            {% if price_history %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Price (USD)</th>
+                        <th>Median</th>
+                        <th>Range</th>
+                        <th>Sources</th>
+                        <th>Confidence</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for price in price_history %}
+                    <tr>
+                        <td>{{ price.timestamp|date:"Y-m-d H:i:s" }}</td>
+                        <td class="price-value">${{ price.aggregated_price }}</td>
+                        <td>${{ price.median_price }}</td>
+                        <td>${{ price.min_price }} - ${{ price.max_price }}</td>
+                        <td>{{ price.num_sources }}</td>
+                        <td>{{ price.confidence_score }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="no-data">
+                <p>No aggregated price history available for {{ token_symbol }}.</p>
+            </div>
+            {% endif %}
+        </div>
+        
+        <div class="section">
+            <h2>Recent Individual Submissions</h2>
+            {% if recent_submissions %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Oracle Source</th>
+                        <th>Price (USD)</th>
+                        <th>TX Hash</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for submission in recent_submissions %}
+                    <tr>
+                        <td>{{ submission.timestamp|date:"Y-m-d H:i:s" }}</td>
+                        <td>{{ submission.source.name }}</td>
+                        <td class="price-value">${{ submission.price_usd }}</td>
+                        <td style="font-family: monospace; font-size: 0.85rem;">{{ submission.tx_hash|truncatechars:20 }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="no-data">
+                <p>No individual submissions available for {{ token_symbol }}.</p>
+            </div>
+            {% endif %}
+        </div>
+        
+        <a href="{% url 'price_feeds' %}" class="back-link">← Back to Price Feeds</a>
+    </div>
+</body>
+</html>

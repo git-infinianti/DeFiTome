@@ -133,3 +133,58 @@ class P2PSwapTransaction(models.Model):
     
     def __str__(self):
         return f"P2PSwapTransaction({self.initiator.username} <-> {self.counterparty.username})"
+
+class PriceFeedSource(models.Model):
+    """Oracle source for price feeds"""
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    oracle_address = models.CharField(max_length=100, unique=True)
+    is_active = models.BooleanField(default=True)
+    reputation_score = models.DecimalField(max_digits=5, decimal_places=2, default=100.0)
+    total_submissions = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"PriceFeedSource({self.name}, active={self.is_active})"
+    
+    class Meta:
+        ordering = ['-reputation_score', 'name']
+
+class PriceFeedData(models.Model):
+    """Individual price submission from an oracle source"""
+    source = models.ForeignKey(PriceFeedSource, on_delete=models.CASCADE, related_name='price_submissions')
+    token_symbol = models.CharField(max_length=10)
+    price_usd = models.DecimalField(max_digits=20, decimal_places=8)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    block_number = models.IntegerField(null=True, blank=True)
+    tx_hash = models.CharField(max_length=100, blank=True)
+    
+    def __str__(self):
+        return f"PriceFeedData({self.token_symbol}=${self.price_usd} by {self.source.name})"
+    
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['token_symbol', '-timestamp']),
+        ]
+
+class PriceFeedAggregation(models.Model):
+    """Aggregated price feed from multiple oracle sources"""
+    token_symbol = models.CharField(max_length=10)
+    aggregated_price = models.DecimalField(max_digits=20, decimal_places=8)
+    median_price = models.DecimalField(max_digits=20, decimal_places=8)
+    min_price = models.DecimalField(max_digits=20, decimal_places=8)
+    max_price = models.DecimalField(max_digits=20, decimal_places=8)
+    num_sources = models.IntegerField(default=0)
+    confidence_score = models.DecimalField(max_digits=5, decimal_places=2, default=0.0)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"PriceFeedAggregation({self.token_symbol}=${self.aggregated_price}, sources={self.num_sources})"
+    
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['token_symbol', '-timestamp']),
+        ]

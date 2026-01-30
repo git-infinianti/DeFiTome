@@ -5,9 +5,14 @@ from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import uuid
-from .models import TestnetConfig, LiquidityPool, LiquidityPosition, SwapTransaction, SwapOffer, SwapEscrow, P2PSwapTransaction
+from .models import (
+    TestnetConfig, LiquidityPool, LiquidityPosition, SwapTransaction, 
+    SwapOffer, SwapEscrow, P2PSwapTransaction, PriceFeedSource, 
+    PriceFeedData, PriceFeedAggregation
+)
+import statistics
 
 # Create your views here.
 
@@ -574,3 +579,214 @@ def claim_fees(request):
         'user_positions': user_positions,
     }
     return render(request, 'defi/claim_fees.html', context)
+
+def price_feeds(request):
+    """Display current price feeds from oracle network"""
+    # Get latest aggregated prices for each token
+    latest_prices = {}
+    tokens = PriceFeedAggregation.objects.values_list('token_symbol', flat=True).distinct()
+    
+    for token in tokens:
+        latest_price = PriceFeedAggregation.objects.filter(token_symbol=token).order_by('-timestamp').first()
+        if latest_price:
+            latest_prices[token] = latest_price
+    
+    # Get active oracle sources
+    oracle_sources = PriceFeedSource.objects.filter(is_active=True)
+    
+    context = {
+        'latest_prices': latest_prices,
+        'oracle_sources': oracle_sources,
+    }
+    return render(request, 'oracle/price_feeds.html', context)
+
+@login_required
+def submit_price(request):
+    """Submit price data to oracle network (oracle node functionality)"""
+    if request.method == 'POST':
+        oracle_address = request.POST.get('oracle_address', '').strip()
+        token_symbol = request.POST.get('token_symbol', '').strip().upper()
+        price_usd = request.POST.get('price_usd', '').strip()
+        
+        # Validate inputs
+        if not oracle_address or not token_symbol or not price_usd:
+            messages.error(request, 'All fields are required.')
+            return redirect('submit_price')
+        
+        try:
+            price_usd = Decimal(price_usd)
+            if price_usd <= 0:
+                messages.error(request, 'Price must be greater than zero.')
+                return redirect('submit_price')
+        except (ValueError, InvalidOperation):
+            messages.error(request, 'Invalid price format.')
+            return redirect('submit_price')
+        
+        # Get or create oracle source
+        source, created = PriceFeedSource.objects.get_or_create(
+            oracle_address=oracle_address,
+            defaults={
+                'name': f'Oracle {oracle_address[:8]}...',
+                'is_active': True
+            }
+        )
+        
+        if not source.is_active:
+            messages.error(request, 'This oracle source is not active.')
+            return redirect('submit_price')
+        
+        # Create price submission
+        PriceFeedData.objects.create(
+            source=source,
+            token_symbol=token_symbol,
+            price_usd=price_usd,
+            tx_hash=f'oracle-{uuid.uuid4()}'
+        )
+        
+        # Update source submission count atomically
+        PriceFeedSource.objects.filter(id=source.id).update(
+            total_submissions=F('total_submissions') + 1
+        )
+        
+        # Trigger price aggregation for this token
+        _aggregate_price_feeds(token_symbol)
+        
+        messages.success(request, f'Price submitted successfully: {token_symbol} = ${price_usd}')
+        return redirect('price_feeds')
+    
+    # Get user's oracle sources if any
+    oracle_sources = PriceFeedSource.objects.all().order_by('-created_at')[:10]
+    
+    context = {
+        'oracle_sources': oracle_sources,
+    }
+    return render(request, 'oracle/submit_price.html', context)
+
+def price_history(request, token_symbol):
+    """Display price history for a specific token"""
+    token_symbol = token_symbol.upper()
+    
+    # Get aggregated price history
+    price_history = PriceFeedAggregation.objects.filter(
+        token_symbol=token_symbol
+    ).order_by('-timestamp')[:100]
+    
+    # Get recent individual submissions (with source info)
+    recent_submissions = PriceFeedData.objects.filter(
+        token_symbol=token_symbol
+    ).select_related('source').order_by('-timestamp')[:50]
+    
+    context = {
+        'token_symbol': token_symbol,
+        'price_history': price_history,
+        'recent_submissions': recent_submissions,
+    }
+    return render(request, 'oracle/price_history.html', context)
+
+@login_required
+def manage_oracle(request):
+    """Manage oracle source settings"""
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        oracle_address = request.POST.get('oracle_address', '').strip()
+        
+        if action == 'register':
+            name = request.POST.get('name', '').strip()
+            description = request.POST.get('description', '').strip()
+            
+            if not oracle_address or not name:
+                messages.error(request, 'Oracle address and name are required.')
+                return redirect('manage_oracle')
+            
+            # Check if oracle already exists
+            if PriceFeedSource.objects.filter(oracle_address=oracle_address).exists():
+                messages.error(request, 'This oracle address is already registered.')
+                return redirect('manage_oracle')
+            
+            # Create new oracle source
+            PriceFeedSource.objects.create(
+                name=name,
+                description=description,
+                oracle_address=oracle_address,
+                is_active=True
+            )
+            
+            messages.success(request, f'Oracle {name} registered successfully!')
+            return redirect('manage_oracle')
+        
+        elif action == 'toggle':
+            try:
+                source = PriceFeedSource.objects.get(oracle_address=oracle_address)
+                source.is_active = not source.is_active
+                source.save()
+                status = 'activated' if source.is_active else 'deactivated'
+                messages.success(request, f'Oracle {source.name} {status}.')
+            except PriceFeedSource.DoesNotExist:
+                messages.error(request, 'Oracle source not found.')
+            
+            return redirect('manage_oracle')
+    
+    # Get all oracle sources
+    oracle_sources = PriceFeedSource.objects.all().order_by('-reputation_score')
+    
+    context = {
+        'oracle_sources': oracle_sources,
+    }
+    return render(request, 'oracle/manage_oracle.html', context)
+
+def _aggregate_price_feeds(token_symbol):
+    """Internal function to aggregate price feeds from multiple sources"""
+    # Get recent price submissions (last 5 minutes)
+    cutoff_time = timezone.now() - timedelta(minutes=5)
+    recent_prices = PriceFeedData.objects.filter(
+        token_symbol=token_symbol,
+        timestamp__gte=cutoff_time,
+        source__is_active=True
+    ).order_by('-timestamp')
+    
+    if not recent_prices:
+        return
+    
+    # Get unique sources (one submission per source)
+    sources_seen = set()
+    price_values = []
+    
+    for price_data in recent_prices:
+        if price_data.source_id not in sources_seen:
+            sources_seen.add(price_data.source_id)
+            price_values.append(float(price_data.price_usd))
+    
+    if not price_values:
+        return
+    
+    # Calculate aggregated metrics
+    median_price = Decimal(str(statistics.median(price_values)))
+    avg_price = Decimal(str(statistics.mean(price_values)))
+    min_price = Decimal(str(min(price_values)))
+    max_price = Decimal(str(max(price_values)))
+    
+    # Calculate confidence score based on number of sources and price variance
+    num_sources = len(price_values)
+    if num_sources > 1:
+        std_dev = statistics.stdev(price_values)
+        # Prevent division by zero
+        if float(avg_price) > 0:
+            # Confidence decreases with higher variance
+            # Max 50% penalty for high variance
+            variance_penalty = min(std_dev / float(avg_price) * 100, 50)
+            confidence = max(0, 100 - variance_penalty)
+        else:
+            confidence = 50
+    else:
+        confidence = 50  # Lower confidence with single source
+    
+    # Create aggregation record
+    PriceFeedAggregation.objects.create(
+        token_symbol=token_symbol,
+        aggregated_price=median_price,  # Use median as aggregated price
+        median_price=median_price,
+        min_price=min_price,
+        max_price=max_price,
+        num_sources=num_sources,
+        confidence_score=Decimal(str(confidence))
+    )
