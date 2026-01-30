@@ -91,16 +91,21 @@ def swap(request):
                 
                 pool.save()
                 
-                # Distribute fees proportionally to all liquidity providers
+                # Distribute fees proportionally to all liquidity providers using atomic updates
                 if pool.total_liquidity_tokens > 0:
                     positions = LiquidityPosition.objects.filter(pool=pool)
                     for position in positions:
                         share = position.liquidity_tokens / pool.total_liquidity_tokens
+                        fee_amount = fee * share
                         if from_token == pool.token_a_symbol:
-                            position.unclaimed_token_a_fees += fee * share
+                            # Use F() expression for atomic update to prevent race conditions
+                            LiquidityPosition.objects.filter(id=position.id).update(
+                                unclaimed_token_a_fees=F('unclaimed_token_a_fees') + fee_amount
+                            )
                         else:
-                            position.unclaimed_token_b_fees += fee * share
-                        position.save()
+                            LiquidityPosition.objects.filter(id=position.id).update(
+                                unclaimed_token_b_fees=F('unclaimed_token_b_fees') + fee_amount
+                            )
                 
                 # Record transaction with unique hash
                 SwapTransaction.objects.create(
@@ -511,6 +516,13 @@ def claim_fees(request):
             messages.error(request, 'Position ID is required.')
             return redirect('claim_fees')
         
+        # Validate position_id is a valid integer
+        try:
+            position_id = int(position_id)
+        except (ValueError, TypeError):
+            messages.error(request, 'Invalid position ID.')
+            return redirect('claim_fees')
+        
         try:
             with transaction.atomic():
                 position = LiquidityPosition.objects.select_for_update().get(
@@ -527,6 +539,11 @@ def claim_fees(request):
                 # Claim the fees
                 claimed_token_a = position.unclaimed_token_a_fees
                 claimed_token_b = position.unclaimed_token_b_fees
+                
+                # Validate pool has sufficient accumulated fees to prevent negative values
+                if pool.accumulated_token_a_fees < claimed_token_a or pool.accumulated_token_b_fees < claimed_token_b:
+                    messages.error(request, 'Pool has insufficient accumulated fees. Please contact support.')
+                    return redirect('claim_fees')
                 
                 # Deduct from pool accumulated fees
                 pool.accumulated_token_a_fees -= claimed_token_a
