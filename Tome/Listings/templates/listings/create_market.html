@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DeFi Tome - Create Listing</title>
+    <title>DeFi Tome - Create Market</title>
     <style>
         * {
             margin: 0;
@@ -86,7 +86,7 @@
         
         .page-title {
             text-align: center;
-            margin-bottom: 3rem;
+            margin-bottom: 2rem;
         }
         
         .page-title h1 {
@@ -122,8 +122,7 @@
             font-weight: 500;
         }
         
-        .form-group input,
-        .form-group textarea {
+        .form-group input {
             width: 100%;
             padding: 0.75rem;
             background: var(--input-bg);
@@ -135,24 +134,48 @@
             transition: border-color 0.3s, background 0.3s;
         }
         
-        .form-group input:focus,
-        .form-group textarea:focus {
+        .form-group input:focus {
             outline: none;
             border-color: var(--accent-primary);
             background: var(--input-focus-bg);
         }
         
-        .form-group textarea {
-            resize: vertical;
-            min-height: 120px;
-        }
-        
-        .form-group input::placeholder,
-        .form-group textarea::placeholder {
+        .form-group input::placeholder {
             color: var(--text-muted);
         }
         
-        .form-actions {
+        .form-group .help-text {
+            margin-top: 0.25rem;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+        
+        .pair-preview {
+            background: var(--input-bg);
+            border: 1px dashed var(--accent-primary);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+        
+        .pair-preview .label {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        
+        .pair-preview .pair-display {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--accent-light);
+        }
+        
+        .pair-preview .pair-display span {
+            color: var(--text-muted);
+        }
+        
+        .btn-group {
             display: flex;
             gap: 1rem;
             margin-top: 2rem;
@@ -163,13 +186,12 @@
             padding: 0.875rem;
             border: none;
             border-radius: 8px;
+            cursor: pointer;
             font-size: 1rem;
             font-weight: 500;
-            cursor: pointer;
-            transition: all 0.3s;
             text-decoration: none;
-            display: inline-block;
             text-align: center;
+            transition: all 0.3s;
         }
         
         .btn-primary {
@@ -195,53 +217,89 @@
         }
         
         .messages {
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
         }
         
-        .message {
-            padding: 1rem;
+        .alert {
+            padding: 12px 20px;
             border-radius: 8px;
-            margin-bottom: 1rem;
+            margin-bottom: 10px;
         }
         
-        .message.error {
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            color: #fca5a5;
-        }
-        
-        .message.success {
+        .alert-success {
             background: rgba(34, 197, 94, 0.1);
             border: 1px solid rgba(34, 197, 94, 0.3);
             color: #86efac;
         }
         
-        .message.info {
-            background: rgba(59, 130, 246, 0.1);
-            border: 1px solid rgba(59, 130, 246, 0.3);
-            color: #93c5fd;
+        .alert-error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
         }
         
-        .help-text {
+        .alert-warning {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: #fcd34d;
+        }
+        
+        .info-box {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+        }
+        
+        .info-box h3 {
+            color: #93c5fd;
+            font-size: 0.95rem;
+            margin-bottom: 8px;
+        }
+        
+        .info-box ul {
+            margin-left: 20px;
+            color: var(--text-secondary);
             font-size: 0.875rem;
-            color: var(--text-muted);
-            margin-top: 0.25rem;
+        }
+        
+        .info-box ul li {
+            margin-bottom: 5px;
         }
         
         @media (max-width: 768px) {
+            .container {
+                padding: 1.5rem;
+            }
+            
+            header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 1rem;
+            }
+            
+            nav a {
+                margin-left: 0;
+                margin-right: 1rem;
+            }
+            
             .form-container {
                 padding: 1.5rem;
             }
             
-            .page-title h1 {
-                font-size: 2rem;
-            }
-            
-            .form-actions {
+            .btn-group {
                 flex-direction: column;
             }
         }
     </style>
+    <script>
+        function updatePairPreview() {
+            const baseToken = document.getElementById('base_token').value.toUpperCase() || 'BASE';
+            const quoteToken = document.getElementById('quote_token').value.toUpperCase() || 'QUOTE';
+            document.getElementById('pair-display').innerHTML = baseToken + '<span>/</span>' + quoteToken;
+        }
+    </script>
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -261,111 +319,80 @@
         </header>
         
         <section class="page-title">
-            <h1>Create New Listing</h1>
-            <p>List your assets on the DeFi Tome marketplace</p>
+            <h1>Create New Market</h1>
+            <p>Create a trading pair for users to trade on the DEX</p>
         </section>
         
         {% if messages %}
-            <div class="messages">
-                {% for message in messages %}
-                    <div class="message {{ message.tags }}">
-                        {{ message }}
-                    </div>
-                {% endfor %}
+        <div class="messages">
+            {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">
+                {{ message }}
             </div>
+            {% endfor %}
+        </div>
         {% endif %}
         
+        <div class="info-box">
+            <h3>📌 Market Creation Guidelines</h3>
+            <ul>
+                <li>Base token is the asset being traded (e.g., BTC in BTC/USDT)</li>
+                <li>Quote token is the pricing currency (e.g., USDT in BTC/USDT)</li>
+                <li>Token symbols must be alphanumeric (2-10 characters)</li>
+                <li>Both tokens must be different</li>
+            </ul>
+        </div>
+        
         <div class="form-container">
-            <form method="post">
-                {% csrf_token %}
-                
-                <div class="form-group">
-                    <label for="title">Item Title</label>
-                    <input 
-                        type="text" 
-                        id="title" 
-                        name="title" 
-                        placeholder="e.g., Bitcoin, Ethereum NFT, etc."
-                        value="{{ title|default:'' }}"
-                        maxlength="200"
-                        required
-                    >
-                    <div class="help-text">Give your listing a clear, descriptive title</div>
+        <form method="POST" action="{% url 'create_market' %}">
+            {% csrf_token %}
+            
+            <div class="pair-preview">
+                <div class="label">Market Pair Preview</div>
+                <div class="pair-display" id="pair-display">
+                    {% if base_token and quote_token %}
+                    {{ base_token }}<span>/</span>{{ quote_token }}
+                    {% else %}
+                    BASE<span>/</span>QUOTE
+                    {% endif %}
                 </div>
-                
-                <div class="form-group">
-                    <label for="description">Description</label>
-                    <textarea 
-                        id="description" 
-                        name="description" 
-                        placeholder="Describe your item in detail..."
-                        required
-                    >{{ description|default:'' }}</textarea>
-                    <div class="help-text">Provide details about your item, its condition, and any relevant information</div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="price">Price (TOME)</label>
-                    <input 
-                        type="number" 
-                        id="price" 
-                        name="price" 
-                        step="0.00000001"
-                        min="0.00000001"
-                        placeholder="0.00000000"
-                        value="{{ price|default:'' }}"
-                        required
-                    >
-                    <div class="help-text">Set your price in TOME tokens (up to 8 decimal places)</div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="quantity">Quantity Available</label>
-                    <input 
-                        type="number" 
-                        id="quantity" 
-                        name="quantity" 
-                        min="1"
-                        placeholder="1"
-                        value="{{ quantity|default:'' }}"
-                        required
-                    >
-                    <div class="help-text">How many units are you listing?</div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="token_offered">Token Offered *</label>
-                    <input 
-                        type="text" 
-                        id="token_offered" 
-                        name="token_offered" 
-                        maxlength="10"
-                        placeholder="e.g., BTC, ETH, TOME"
-                        value="{{ token_offered|default:'' }}"
-                        required
-                    >
-                    <div class="help-text">The token symbol you are offering (e.g., BTC, ETH) - REQUIRED</div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="preferred_token">Preferred Token *</label>
-                    <input 
-                        type="text" 
-                        id="preferred_token" 
-                        name="preferred_token" 
-                        maxlength="10"
-                        placeholder="e.g., USDT, BTC, ETH"
-                        value="{{ preferred_token|default:'' }}"
-                        required
-                    >
-                    <div class="help-text">The token symbol you want in exchange - REQUIRED</div>
-                </div>
-                
-                <div class="form-actions">
-                    <a href="{% url 'listings' %}" class="btn btn-secondary">Cancel</a>
-                    <button type="submit" class="btn btn-primary">Create Listing</button>
-                </div>
-            </form>
+            </div>
+            
+            <div class="form-group">
+                <label for="base_token">Base Token Symbol *</label>
+                <input 
+                    type="text" 
+                    id="base_token" 
+                    name="base_token" 
+                    value="{{ base_token }}"
+                    placeholder="e.g., BTC, ETH, XNT"
+                    maxlength="10"
+                    oninput="updatePairPreview()"
+                    required
+                >
+                <div class="help-text">The token being traded (left side of the pair)</div>
+            </div>
+            
+            <div class="form-group">
+                <label for="quote_token">Quote Token Symbol *</label>
+                <input 
+                    type="text" 
+                    id="quote_token" 
+                    name="quote_token" 
+                    value="{{ quote_token }}"
+                    placeholder="e.g., USDT, BTC, SAFE"
+                    maxlength="10"
+                    oninput="updatePairPreview()"
+                    required
+                >
+                <div class="help-text">The pricing token (right side of the pair)</div>
+            </div>
+            
+            <div class="btn-group">
+                <a href="{% url 'markets' %}" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary">Create Market</button>
+            </div>
+        </form>
         </div>
     </div>
 </body>

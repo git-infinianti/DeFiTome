@@ -238,11 +238,18 @@
         
         .trade-row {
             display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
             gap: 0.5rem;
             padding: 0.75rem 1.5rem;
             border-bottom: 1px solid rgba(148, 163, 184, 0.1);
             font-size: 0.85rem;
+        }
+        
+        .trade-row.header {
+            background: rgba(15, 23, 42, 0.6);
+            font-weight: 600;
+            color: #94a3b8;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
         }
         
         .trade-row:hover {
@@ -418,6 +425,31 @@
             margin-top: 0.5rem;
         }
         
+        .cost-preview {
+            background: rgba(15, 23, 42, 0.4);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            border-radius: 8px;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        
+        .cost-preview-label {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-bottom: 0.25rem;
+        }
+        
+        .cost-preview-value {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #60a5fa;
+        }
+        
+        .cost-preview-value.disabled {
+            color: #64748b;
+            opacity: 0.6;
+        }
+        
         .messages {
             margin-bottom: 1rem;
         }
@@ -553,10 +585,17 @@
                     </div>
                     <div class="trades-list">
                         {% if recent_trades %}
+                            <div class="trade-row header">
+                                <div>Price</div>
+                                <div>Quantity</div>
+                                <div>Total Cost</div>
+                                <div style="text-align: right;">Time</div>
+                            </div>
                             {% for trade in recent_trades %}
                             <div class="trade-row">
                                 <div style="color: #94a3b8;">{{ trade.price }}</div>
                                 <div style="color: #cbd5e1;">{{ trade.quantity }}</div>
+                                <div style="color: #60a5fa; font-weight: 600;">{{ trade.total_cost|floatformat:8 }}</div>
                                 <div style="color: #94a3b8; text-align: right;">{{ trade.created_at|date:"H:i:s" }}</div>
                             </div>
                             {% endfor %}
@@ -592,7 +631,12 @@
                         
                         <div class="form-group">
                             <label class="form-label">Quantity ({{ selected_pair.base_token }})</label>
-                            <input type="text" name="quantity" class="form-input" placeholder="0.00000000" required>
+                            <input type="text" name="quantity" class="form-input market-quantity" placeholder="0.00000000" required oninput="updateMarketCost()">
+                        </div>
+                        
+                        <div class="cost-preview">
+                            <div class="cost-preview-label">Estimated Total Cost</div>
+                            <div class="cost-preview-value disabled" id="market-cost-value">-- {{ selected_pair.quote_token }}</div>
                         </div>
                         
                         <button type="submit" class="submit-btn buy" id="market-submit">Buy at Market Price</button>
@@ -612,12 +656,17 @@
                         
                         <div class="form-group">
                             <label class="form-label">Price ({{ selected_pair.quote_token }})</label>
-                            <input type="text" name="price" class="form-input" placeholder="0.00000000" required>
+                            <input type="text" name="price" class="form-input limit-price" placeholder="0.00000000" required oninput="updateLimitCost()">
                         </div>
                         
                         <div class="form-group">
                             <label class="form-label">Quantity ({{ selected_pair.base_token }})</label>
-                            <input type="text" name="quantity" class="form-input" placeholder="0.00000000" required>
+                            <input type="text" name="quantity" class="form-input limit-quantity" placeholder="0.00000000" required oninput="updateLimitCost()">
+                        </div>
+                        
+                        <div class="cost-preview">
+                            <div class="cost-preview-label">Total Cost at Limit Price</div>
+                            <div class="cost-preview-value disabled" id="limit-cost-value">-- {{ selected_pair.quote_token }}</div>
                         </div>
                         
                         <button type="submit" class="submit-btn buy" id="limit-submit">Place Buy Limit Order</button>
@@ -655,6 +704,8 @@
     </div>
     
     <script>
+        const quoteToken = '{{ selected_pair.quote_token }}';
+        
         function switchTab(event, type) {
             // Update tab buttons
             const tabs = document.querySelectorAll('.trade-type-tab');
@@ -697,6 +748,51 @@
                     submitBtn.textContent = 'Place Sell Stop-Loss';
                 }
             }
+        }
+        
+        function updateMarketCost() {
+            const quantityInput = document.querySelector('.market-quantity');
+            const costValue = document.getElementById('market-cost-value');
+            const quantity = parseFloat(quantityInput.value) || 0;
+            
+            if (quantity <= 0) {
+                costValue.classList.add('disabled');
+                costValue.textContent = '-- ' + quoteToken;
+                return;
+            }
+            
+            // Get lowest sell order price as the market price
+            const sellOrders = document.querySelectorAll('[data-sell-price]');
+            if (sellOrders.length === 0) {
+                costValue.classList.add('disabled');
+                costValue.textContent = 'No liquidity';
+                return;
+            }
+            
+            const bestPrice = parseFloat(sellOrders[0].getAttribute('data-sell-price')) || 0;
+            const totalCost = (quantity * bestPrice).toFixed(8);
+            
+            costValue.classList.remove('disabled');
+            costValue.textContent = totalCost + ' ' + quoteToken;
+        }
+        
+        function updateLimitCost() {
+            const priceInput = document.querySelector('.limit-price');
+            const quantityInput = document.querySelector('.limit-quantity');
+            const costValue = document.getElementById('limit-cost-value');
+            
+            const price = parseFloat(priceInput.value) || 0;
+            const quantity = parseFloat(quantityInput.value) || 0;
+            
+            if (price <= 0 || quantity <= 0) {
+                costValue.classList.add('disabled');
+                costValue.textContent = '-- ' + quoteToken;
+                return;
+            }
+            
+            const totalCost = (price * quantity).toFixed(8);
+            costValue.classList.remove('disabled');
+            costValue.textContent = totalCost + ' ' + quoteToken;
         }
     </script>
 </body>

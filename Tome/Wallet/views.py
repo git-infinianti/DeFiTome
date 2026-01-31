@@ -1,10 +1,52 @@
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.utils import timezone
+from decimal import Decimal
 from .models import UserWallet
 from .wallet import Wallet
 from .rpc import RPC
 from hdwallet.entropies import BIP39Entropy
+
+
+def _sync_user_evr_balance(user_wallet):
+    """
+    Sync user's EVR balance from blockchain using getaddressbalance RPC command.
+    
+    Args:
+        user_wallet: UserWallet instance to update
+        
+    Returns:
+        Decimal: The balance amount, or None if failed
+        
+    Side effects:
+        - Updates user_wallet.evr_liquidity with the balance from the RPC
+        - Updates user_wallet.last_balance_update timestamp
+        - Saves changes to database
+    """
+    try:
+        # Get wallet address
+        wallet_instance = Wallet(user_wallet.entropy, user_wallet.passphrase)
+        wallet = wallet_instance.get_wallet()
+        address = wallet.address()
+        
+        # Call getaddressbalance RPC command
+        balance_data = RPC.getaddressbalance(address)
+        
+        # Extract balance from response: {"balance": 0, "received": 0}
+        if isinstance(balance_data, dict) and 'balance' in balance_data:
+            balance = Decimal(str(balance_data['balance']))
+            user_wallet.evr_liquidity = balance
+            user_wallet.last_balance_update = timezone.now()
+            user_wallet.save()
+            return balance
+        else:
+            print(f"Unexpected balance response format: {balance_data}")
+            return None
+            
+    except Exception as e:
+        print(f"Error syncing balance for user {user_wallet.user.username}: {str(e)}")
+        return None
 
 
 # Create your views here.
@@ -50,6 +92,26 @@ def portfolio(request):
         'user_wallet': user_wallet,
     }
     return render(request, 'portfolio/index.html', context)
+
+@login_required
+def sync_balance(request):
+    """Sync user's EVR balance from the blockchain"""
+    user_wallet = getattr(request.user, 'user_wallet', None)
+    
+    if not user_wallet:
+        messages.error(request, 'No wallet found to sync balance.')
+        return redirect('portfolio')
+    
+    try:
+        balance = _sync_user_evr_balance(user_wallet)
+        if balance is not None:
+            messages.success(request, f'Balance synced successfully! Current balance: {balance} EVR')
+        else:
+            messages.error(request, 'Failed to sync balance. Please try again.')
+    except Exception as e:
+        messages.error(request, f'Error syncing balance: {str(e)}')
+    
+    return redirect('portfolio')
 
 @login_required
 def backup_wallet(request):

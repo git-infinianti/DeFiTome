@@ -86,13 +86,59 @@ class TradingPair(models.Model):
     base_token = models.CharField(max_length=10)  # e.g., BTC
     quote_token = models.CharField(max_length=10)  # e.g., USDT
     is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='created_pairs')
     created_at = models.DateTimeField(auto_now_add=True)
+    last_price = models.DecimalField(max_digits=20, decimal_places=8, default=0)
+    high_24h = models.DecimalField(max_digits=20, decimal_places=8, default=0)
+    low_24h = models.DecimalField(max_digits=20, decimal_places=8, default=0)
+    volume_24h = models.DecimalField(max_digits=20, decimal_places=8, default=0)
+    amount_24h = models.DecimalField(max_digits=20, decimal_places=8, default=0)
+    price_change_24h = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # percentage
     
     class Meta:
         unique_together = ['base_token', 'quote_token']
     
     def __str__(self):
         return f"{self.base_token}/{self.quote_token}"
+    
+    def get_24h_stats(self):
+        """Calculate 24h statistics from order executions"""
+        from django.utils import timezone
+        from datetime import timedelta
+        from django.db.models import Sum, Min, Max, Count
+        
+        since = timezone.now() - timedelta(hours=24)
+        executions = self.executions.filter(created_at__gte=since)
+        
+        if executions.exists():
+            stats = executions.aggregate(
+                high=Max('price'),
+                low=Min('price'),
+                volume=Sum('quantity'),
+                amount=Count('id')
+            )
+            last_execution = self.executions.order_by('-created_at').first()
+            first_price = executions.order_by('created_at').first().price if executions.exists() else self.last_price
+            
+            if last_execution:
+                self.last_price = last_execution.price
+                if first_price and first_price > 0:
+                    self.price_change_24h = ((self.last_price - first_price) / first_price) * 100
+            
+            self.high_24h = stats['high'] or 0
+            self.low_24h = stats['low'] or 0
+            self.volume_24h = stats['volume'] or 0
+            self.amount_24h = stats['amount'] or 0
+            self.save()
+        
+        return {
+            'last_price': self.last_price,
+            'price_change_24h': self.price_change_24h,
+            'high_24h': self.high_24h,
+            'low_24h': self.low_24h,
+            'volume_24h': self.volume_24h,
+            'amount_24h': self.amount_24h,
+        }
 
 class LimitOrder(models.Model):
     """Limit order in the order book"""

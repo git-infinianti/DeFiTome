@@ -6,4 +6,5 @@ urlpatterns = [
     path('portfolio/backup/', views.backup_wallet, name='backup_wallet'),
     path('portfolio/send/', views.send_funds, name='send_funds'),
     path('portfolio/receive/', views.recieve_funds, name='recieve_funds'),
+    path('portfolio/sync-balance/', views.sync_balance, name='sync_balance'),
 ]

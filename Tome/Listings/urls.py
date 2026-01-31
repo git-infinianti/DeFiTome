@@ -7,6 +7,10 @@ urlpatterns = [
     path('create/', views.create_listing, name='create_listing'),
     path('listing/<int:listing_id>/', views.listing_detail, name='listing_detail'),
     
+    # Markets
+    path('markets/', views.markets_view, name='markets'),
+    path('markets/create/', views.create_market, name='create_market'),
+    
     # Order Book DEX
     path('dex/', views.dex_orderbook, name='dex_orderbook'),
     path('dex/limit-order/', views.place_limit_order, name='place_limit_order'),
