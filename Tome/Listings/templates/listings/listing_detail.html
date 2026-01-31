@@ -173,7 +173,7 @@
         <header>
             <div class="logo">DeFi Tome</div>
             <nav>
-                <a href="{% url 'listings' %}">Marketplace</a>
+                <a href="{% url 'listings' %}">Listings</a>
                 <a href="{% url 'dex_orderbook' %}">DEX</a>
                 <a href="{% url 'lending_home' %}">Lending</a>
                 <a href="{% url 'my_swap_offers' %}">My Offers</a>
@@ -205,34 +205,25 @@
                     <div class="detail-value" style="font-size: 1rem;">{{ listing.listing_date|date:"M d, Y" }}</div>
                 </div>
                 <div class="detail-box">
-                    <div class="detail-label">Swaps Allowed</div>
-                    <div class="detail-value" style="font-size: 1rem;">
-                        {% if listing.allow_swaps %}
-                            ✓ Yes
-                        {% else %}
-                            ✗ No
-                        {% endif %}
-                    </div>
+                    <div class="detail-label">Token Offered</div>
+                    <div class="detail-value" style="font-size: 1rem;">{{ listing.token_offered }}</div>
+                </div>
+                <div class="detail-box">
+                    <div class="detail-label">Preferred Token</div>
+                    <div class="detail-value" style="font-size: 1rem;">{{ listing.preferred_token }}</div>
                 </div>
             </div>
             
-            {% if listing.allow_swaps %}
-                <div class="swap-info">
-                    <div class="swap-info-title">💱 Peer-to-Peer Swap Available</div>
-                    <div class="swap-info-text">
-                        This listing accepts swap offers. 
-                        {% if listing.preferred_swap_token %}
-                            Preferred token: <strong>{{ listing.preferred_swap_token }}</strong>
-                        {% else %}
-                            Open to all token offers.
-                        {% endif %}
-                    </div>
+            <div class="swap-info">
+                <div class="swap-info-title">💱 Token Exchange</div>
+                <div class="swap-info-text">
+                    This listing offers <strong>{{ listing.token_offered }}</strong> in exchange for <strong>{{ listing.preferred_token }}</strong>.
                 </div>
-            {% endif %}
+            </div>
             
             <div class="actions">
-                <a href="{% url 'listings' %}" class="btn btn-secondary">Back to Marketplace</a>
-                {% if listing.allow_swaps and listing.seller != request.user %}
+                <a href="{% url 'listings' %}" class="btn btn-secondary">Back to Listings</a>
+                {% if listing.seller != request.user %}
                     <a href="{% url 'create_swap_offer_for_listing' listing.id %}" class="btn btn-primary">Propose Swap</a>
                 {% endif %}
             </div>

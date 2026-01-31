@@ -217,7 +217,7 @@
             <nav>
                 <a href="{% url 'testnet_home' %}">DeFi</a>
                 <a href="{% url 'explorer' %}">Explorer</a>
-                <a href="{% url 'listings' %}">Marketplace</a>
+                <a href="{% url 'listings' %}">Listings</a>
                 <a href="{% url 'portfolio' %}">Portfolio</a>
                 <a href="{% url 'api_docs' %}">Docs</a>
                 <a href="{% url 'settings' %}">Settings</a>
@@ -245,7 +245,7 @@
                 </a>
                 <a href="{% url 'listings' %}" class="feature-card-link">
                     <div class="feature-card">
-                        <h3>🔍 Marketplace</h3>
+                        <h3>🔍 Listings</h3>
                         <p>Trade digital assets and NFTs</p>
                     </div>
                 </a>
@@ -258,7 +258,7 @@
             </section>
             
             <section class="news-section">
-                <h2>Recent Marketplace Listings</h2>
+                <h2>Recent Listings</h2>
                 {% if listings %}
                     {% for listing in listings %}
                     <div class="news-item">
