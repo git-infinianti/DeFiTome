@@ -19,17 +19,17 @@
         }
         
         .container {
-            max-width: 1200px;
+            max-width: 1600px;
             margin: 0 auto;
-            padding: 2rem;
+            padding: 1.5rem;
         }
         
         header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 3rem;
-            padding-bottom: 2rem;
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
             border-bottom: 1px solid rgba(148, 163, 184, 0.2);
         }
         
@@ -52,46 +52,73 @@
             color: #3b82f6;
         }
         
-        .page-title {
-            text-align: center;
-            margin-bottom: 3rem;
+        .messages {
+            margin-bottom: 1rem;
         }
         
-        .page-title h1 {
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
+        .alert {
+            padding: 1rem 1.25rem;
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+        }
+        
+        .alert-success {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+        }
+        
+        .alert-error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+        }
+        
+        .alert-warning {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: #fbbf24;
+        }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+        
+        .page-title {
+            font-size: 2rem;
             background: linear-gradient(135deg, #60a5fa, #a78bfa);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
         
-        .page-actions {
-            text-align: center;
-            margin-bottom: 2rem;
+        .quick-nav {
+            display: flex;
+            gap: 1rem;
         }
         
-        .btn-create {
-            display: inline-block;
-            padding: 0.875rem 2rem;
-            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-            color: white;
+        .btn-nav {
+            padding: 0.625rem 1.25rem;
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #60a5fa;
             text-decoration: none;
-            border-radius: 8px;
+            border-radius: 6px;
             font-weight: 500;
             transition: all 0.3s;
         }
         
-        .btn-create:hover {
-            background: linear-gradient(135deg, #2563eb, #7c3aed);
-            transform: translateY(-2px);
-            box-shadow: 0 8px 16px rgba(59, 130, 246, 0.3);
+        .btn-nav:hover {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: #60a5fa;
         }
         
         .offers-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-            gap: 2rem;
-            margin-bottom: 3rem;
+            gap: 1.5rem;
         }
         
         .offer-card {
@@ -239,19 +266,31 @@
         <header>
             <div class="logo">DeFi Tome</div>
             <nav>
-                <a href="{% url 'marketplace' %}">Marketplace</a>
-                <a href="{% url 'my_swap_offers' %}">My Offers</a>
-                <a href="{% url 'available_swap_offers' %}">Available Swaps</a>
-                <a href="{% url 'my_swap_history' %}">Swap History</a>
+                <a href="{% url 'home' %}">Home</a>
+                <a href="{% url 'explorer' %}">Explorer</a>
+                <a href="{% url 'marketplace' %}">Listings</a>
+                <a href="{% url 'dex_orderbook' %}">DEX</a>
+                <a href="{% url 'lending_home' %}">Lending</a>
             </nav>
         </header>
         
-        <section class="page-title">
-            <h1>My Swap Offers</h1>
-        </section>
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+                <div class="alert alert-{% if message.tags == 'error' %}error{% elif message.tags == 'success' %}success{% elif message.tags == 'warning' %}warning{% else %}info{% endif %}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
         
-        <div class="page-actions">
-            <a href="{% url 'create_swap_offer' %}" class="btn-create">+ Create New Swap Offer</a>
+        <div class="page-header">
+            <h1 class="page-title">My Swap Offers</h1>
+            <div class="quick-nav">
+                <a href="{% url 'create_swap_offer' %}" class="btn-nav">+ Create Offer</a>
+                <a href="{% url 'available_swap_offers' %}" class="btn-nav">Available Swaps</a>
+                <a href="{% url 'my_swap_history' %}" class="btn-nav">History</a>
+            </div>
         </div>
         
         {% if offers %}
