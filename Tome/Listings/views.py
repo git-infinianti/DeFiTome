@@ -6,48 +6,65 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from .models import (
-    MarketplaceListing, MarketplaceItem, TradingPair, LimitOrder, 
+    Listing, ListingItem, TradingPair, LimitOrder, 
     MarketOrder, StopLossOrder, OrderExecution
 )
 import uuid
 
 # Create your views here.
 @login_required
-def marketplace(request):
-    """Display all available marketplace listings"""
-    listings = MarketplaceListing.objects.all().select_related('item', 'seller').order_by('-listing_date')
-    return render(request, 'marketplace/index.html', {'listings': listings})
+def listings(request):
+    """Display all available listings"""
+    all_listings = Listing.objects.all().select_related('item', 'seller').order_by('-listing_date')
+    return render(request, 'listings/index.html', {'listings': all_listings})
 
 @login_required
 def create_listing(request):
-    """Create a new marketplace listing"""
+    """Create a new listing"""
     if request.method == 'POST':
         title = request.POST.get('title', '').strip()
         description = request.POST.get('description', '').strip()
         price = request.POST.get('price', '').strip()
         quantity = request.POST.get('quantity', '').strip()
-        allow_swaps = request.POST.get('allow_swaps') == 'on'
-        preferred_swap_token = request.POST.get('preferred_swap_token', '').strip().upper()
+        token_offered = request.POST.get('token_offered', '').strip().upper()
+        preferred_token = request.POST.get('preferred_token', '').strip().upper()
         
-        # Validate preferred swap token format
-        if preferred_swap_token and not preferred_swap_token.isalnum():
-            messages.error(request, 'Preferred swap token must be alphanumeric only.')
-            return render(request, 'marketplace/create_listing.html', {
-                'title': title, 'description': description, 'price': price, 'quantity': quantity
+        # Validate token fields are mandatory and alphanumeric
+        if not token_offered or not preferred_token:
+            messages.error(request, 'Token offered and preferred token are required.')
+            return render(request, 'listings/create_listing.html', {
+                'title': title, 'description': description, 'price': price, 'quantity': quantity,
+                'token_offered': token_offered, 'preferred_token': preferred_token
+            })
+        
+        if not token_offered.isalnum() or not preferred_token.isalnum():
+            messages.error(request, 'Token symbols must be alphanumeric only.')
+            return render(request, 'listings/create_listing.html', {
+                'title': title, 'description': description, 'price': price, 'quantity': quantity,
+                'token_offered': token_offered, 'preferred_token': preferred_token
             })
         
         # Validate required fields
         if not title or not description or not price or not quantity:
             messages.error(request, 'All fields are required.')
-            return render(request, 'marketplace/create_listing.html', {
-                'title': title, 'description': description, 'price': price, 'quantity': quantity
+            return render(request, 'listings/create_listing.html', {
+                'title': title, 'description': description, 'price': price, 'quantity': quantity,
+                'token_offered': token_offered, 'preferred_token': preferred_token
             })
         
         # Validate field lengths
         if len(title) > 200:
             messages.error(request, 'Title must not exceed 200 characters.')
-            return render(request, 'marketplace/create_listing.html', {
-                'title': title, 'description': description, 'price': price, 'quantity': quantity
+            return render(request, 'listings/create_listing.html', {
+                'title': title, 'description': description, 'price': price, 'quantity': quantity,
+                'token_offered': token_offered, 'preferred_token': preferred_token
+            })
+        
+        if len(token_offered) > 10 or len(preferred_token) > 10:
+            messages.error(request, 'Token symbols must not exceed 10 characters.')
+            return render(request, 'listings/create_listing.html', {
+                'title': title, 'description': description, 'price': price, 'quantity': quantity,
+                'token_offered': token_offered, 'preferred_token': preferred_token
             })
         
         # Validate numeric fields
@@ -57,23 +74,26 @@ def create_listing(request):
             
             if price_decimal <= 0:
                 messages.error(request, 'Price must be greater than 0.')
-                return render(request, 'marketplace/create_listing.html', {
-                    'title': title, 'description': description, 'price': price, 'quantity': quantity
+                return render(request, 'listings/create_listing.html', {
+                    'title': title, 'description': description, 'price': price, 'quantity': quantity,
+                    'token_offered': token_offered, 'preferred_token': preferred_token
                 })
             
             if quantity_int <= 0:
                 messages.error(request, 'Quantity must be greater than 0.')
-                return render(request, 'marketplace/create_listing.html', {
-                    'title': title, 'description': description, 'price': price, 'quantity': quantity
+                return render(request, 'listings/create_listing.html', {
+                    'title': title, 'description': description, 'price': price, 'quantity': quantity,
+                    'token_offered': token_offered, 'preferred_token': preferred_token
                 })
         except (ValueError, InvalidOperation):
             messages.error(request, 'Invalid price or quantity format.')
-            return render(request, 'marketplace/create_listing.html', {
-                'title': title, 'description': description, 'price': price, 'quantity': quantity
+            return render(request, 'listings/create_listing.html', {
+                'title': title, 'description': description, 'price': price, 'quantity': quantity,
+                'token_offered': token_offered, 'preferred_token': preferred_token
             })
         
-        # Create the marketplace item
-        item = MarketplaceItem.objects.create(
+        # Create the listing item
+        item = ListingItem.objects.create(
             title=title,
             description=description,
             quantity=quantity_int,
@@ -81,30 +101,30 @@ def create_listing(request):
             total_price=price_decimal * quantity_int
         )
         
-        # Create the marketplace listing
-        MarketplaceListing.objects.create(
+        # Create the listing
+        Listing.objects.create(
             item=item,
             seller=request.user,
             price=price_decimal,
             quantity_available=quantity_int,
-            allow_swaps=allow_swaps,
-            preferred_swap_token=preferred_swap_token
+            token_offered=token_offered,
+            preferred_token=preferred_token
         )
         
         messages.success(request, 'Listing created successfully!')
-        return redirect('marketplace')
+        return redirect('listings')
     
-    return render(request, 'marketplace/create_listing.html')
+    return render(request, 'listings/create_listing.html')
 
 @login_required
 def listing_detail(request, listing_id):
-    """Display detailed view of a marketplace listing"""
-    listing = get_object_or_404(MarketplaceListing.objects.select_related('item', 'seller'), id=listing_id)
+    """Display detailed view of a listing"""
+    listing = get_object_or_404(Listing.objects.select_related('item', 'seller'), id=listing_id)
     
     context = {
         'listing': listing,
     }
-    return render(request, 'marketplace/listing_detail.html', context)
+    return render(request, 'listings/listing_detail.html', context)
 
 # Order Book DEX Views
 @login_required
@@ -155,7 +175,7 @@ def dex_orderbook(request):
         'sell_orders': sell_orders,
         'recent_trades': recent_trades,
     }
-    return render(request, 'marketplace/dex_orderbook.html', context)
+    return render(request, 'listings/dex_orderbook.html', context)
 
 @login_required
 def place_limit_order(request):
@@ -466,7 +486,7 @@ def my_orders(request):
         'stop_loss_orders': stop_loss_orders,
         'trade_history': trade_history,
     }
-    return render(request, 'marketplace/my_orders.html', context)
+    return render(request, 'listings/my_orders.html', context)
 
 def _match_order(order):
     """

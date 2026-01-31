@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DeFi Tome - Marketplace</title>
+    <title>DeFi Tome - Listings</title>
     <style>
         * {
             margin: 0;
@@ -229,7 +229,7 @@
             <nav>
                 <a href="{% url 'home' %}">Home</a>
                 <a href="{% url 'explorer' %}">Explorer</a>
-                <a href="{% url 'marketplace' %}">Listings</a>
+                <a href="{% url 'listings' %}">Listings</a>
                 <a href="{% url 'dex_orderbook' %}">DEX</a>
                 <a href="{% url 'lending_home' %}">Lending</a>
                 <a href="{% url 'portfolio' %}">Portfolio</a>
@@ -239,7 +239,7 @@
         </header>
         
         <section class="page-title">
-            <h1>Marketplace</h1>
+            <h1>Listings</h1>
             <p>Browse available listings and trade on the DEX</p>
         </section>
         
@@ -262,16 +262,14 @@
                         
                         <div class="listing-details">
                             <div>
-                                <div class="listing-price">{{ listing.price }} TOME</div>
-                                <div class="listing-quantity">{{ listing.quantity_available }} available</div>
+                                <div class="listing-price">{{ listing.price }} {{ listing.preferred_token }}</div>
+                                <div class="listing-quantity">{{ listing.quantity_available }} {{ listing.token_offered }} available</div>
                             </div>
                         </div>
                         
-                        {% if listing.allow_swaps %}
-                            <div style="margin-top: 0.75rem; padding: 0.5rem; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 6px; text-align: center;">
-                                <span style="color: #a78bfa; font-size: 0.85rem;">💱 Swap Offers Accepted</span>
-                            </div>
-                        {% endif %}
+                        <div style="margin-top: 0.75rem; padding: 0.5rem; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 6px; text-align: center;">
+                            <span style="color: #a78bfa; font-size: 0.85rem;">💱 Offering {{ listing.token_offered }} for {{ listing.preferred_token }}</span>
+                        </div>
                         
                         <div class="listing-date">Listed on {{ listing.listing_date|date:"M d, Y" }}</div>
                         

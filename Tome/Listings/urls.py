@@ -2,8 +2,8 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    # Traditional marketplace
-    path('', views.marketplace, name='marketplace'),
+    # Traditional listings
+    path('', views.listings, name='listings'),
     path('create/', views.create_listing, name='create_listing'),
     path('listing/<int:listing_id>/', views.listing_detail, name='listing_detail'),
     

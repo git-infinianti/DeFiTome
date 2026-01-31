@@ -173,7 +173,7 @@
         <header>
             <div class="logo">DeFi Tome</div>
             <nav>
-                <a href="{% url 'marketplace' %}">Marketplace</a>
+                <a href="{% url 'listings' %}">Marketplace</a>
                 <a href="{% url 'dex_orderbook' %}">DEX</a>
                 <a href="{% url 'lending_home' %}">Lending</a>
                 <a href="{% url 'my_swap_offers' %}">My Offers</a>
@@ -231,7 +231,7 @@
             {% endif %}
             
             <div class="actions">
-                <a href="{% url 'marketplace' %}" class="btn btn-secondary">Back to Marketplace</a>
+                <a href="{% url 'listings' %}" class="btn btn-secondary">Back to Marketplace</a>
                 {% if listing.allow_swaps and listing.seller != request.user %}
                     <a href="{% url 'create_swap_offer_for_listing' listing.id %}" class="btn btn-primary">Propose Swap</a>
                 {% endif %}

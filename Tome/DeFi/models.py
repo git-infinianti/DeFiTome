@@ -82,7 +82,7 @@ class SwapOffer(models.Model):
     
     initiator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='initiated_swaps')
     counterparty = models.ForeignKey(User, on_delete=models.CASCADE, related_name='received_swaps', null=True, blank=True)
-    marketplace_listing = models.ForeignKey('Marketplace.MarketplaceListing', on_delete=models.CASCADE, related_name='swap_offers', null=True, blank=True)
+    listing = models.ForeignKey('Listings.Listing', on_delete=models.CASCADE, related_name='swap_offers', null=True, blank=True)
     
     # What initiator offers
     offer_token = models.CharField(max_length=10)

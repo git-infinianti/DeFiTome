@@ -290,20 +290,17 @@ def create_swap_offer(request, listing_id=None):
     initial_data = {}
     
     if listing_id:
-        from Marketplace.models import MarketplaceListing
+        from Listings.models import Listing
         try:
-            marketplace_listing = MarketplaceListing.objects.get(id=listing_id)
-            if not marketplace_listing.allow_swaps:
-                messages.error(request, 'This listing does not accept swap offers.')
-                return redirect('marketplace')
+            listing = Listing.objects.get(id=listing_id)
             # Pre-populate with listing information
             initial_data = {
-                'counterparty': marketplace_listing.seller.username,
-                'preferred_token': marketplace_listing.preferred_swap_token
+                'counterparty': listing.seller.username,
+                'preferred_token': listing.preferred_token
             }
-        except MarketplaceListing.DoesNotExist:
+        except Listing.DoesNotExist:
             messages.error(request, 'Listing not found.')
-            return redirect('marketplace')
+            return redirect('listings')
     
     if request.method == 'POST':
         offer_token = request.POST.get('offer_token', '').strip().upper()
