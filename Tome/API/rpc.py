@@ -67,11 +67,43 @@ class EvrmoreRPC:
         """Get snapshot of asset holders at a specific block height"""
         return self.client.getsnapshot(asset_name, block_height)
     
-    def issue_asset(self, asset_name, qty, to_address="", change_address="", 
-                   units=0, reissuable=True, has_ipfs=False, ipfs_hash=""):
-        """Issue a new asset"""
-        return self.client.issue(asset_name, qty, to_address, change_address, 
-                                units, reissuable, has_ipfs, ipfs_hash)
+    def issue_asset(
+        self,
+        asset_name,
+        qty,
+        to_address="",
+        change_address="",
+        units=0,
+        reissuable=True,
+        has_ipfs=False,
+        ipfs_hash="",
+        permanent_ipfs_hash="",
+        toll_amount=0,
+        toll_address="",
+        toll_amount_mutability=False,
+        toll_address_mutability=False,
+        remintable=None,
+    ):
+        """Issue a new asset using the node's full issue parameter shape."""
+        if remintable is None:
+            remintable = bool(reissuable)
+
+        return self.client.issue(
+            asset_name,
+            qty,
+            to_address,
+            change_address,
+            units,
+            reissuable,
+            has_ipfs,
+            ipfs_hash,
+            permanent_ipfs_hash,
+            toll_amount,
+            toll_address,
+            toll_amount_mutability,
+            toll_address_mutability,
+            remintable,
+        )
     
     def issue_unique_asset(self, root_name, asset_tags, ipfs_hashes=None, 
                           to_address="", change_address=""):
@@ -164,8 +196,19 @@ class EvrmoreRPC:
         # Build the issue command with basic parameters
         # Toll support will be added in future Evrmore Core V2 release
         
-        return self.issue_asset(asset_name, qty, to_address, change_address, 
-                               units, reissuable, has_ipfs, ipfs_hash)
+        return self.issue_asset(
+            asset_name,
+            qty,
+            to_address,
+            change_address,
+            units,
+            reissuable,
+            has_ipfs,
+            ipfs_hash,
+            toll_amount=toll_percentage,
+            toll_address=toll_address,
+            remintable=bool(reissuable),
+        )
     
     def get_vault_toll_info(self, asset_name):
         """

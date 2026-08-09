@@ -1,6 +1,6 @@
 ---
 name: evrmore-engineer
-description: "General EVRMore engineering workflow for wallet, RPC, chain-data, asset, and on-chain DEX work, with market research and trading analysis as optional evidence-gathering modes. Use when building, debugging, validating, or planning EVRMore-related systems."
+description: "General EVRMore engineering workflow for wallets, RPC, chain data, assets, messaging channels, IPFS metadata, on-chain console operations, and DEX work. Use when building, debugging, validating, or planning EVRMore-related systems."
 argument-hint: "goal=<wallet-ops|rpc-health|rpc-implementation|market-scan|trade-plan|dex-architecture> network=<mainnet|testnet|both> horizon=<intraday|swing> risk=<low|medium|high>"
 user-invocable: true
 ---
@@ -18,6 +18,8 @@ This skill is for engineering, analysis, and planning across EVRMore surfaces, i
 - wallet flows
 - RPC integrations
 - asset and address telemetry
+- messaging-channel-backed console operations
+- asset IPFS metadata creation and validation
 - trading and market research
 - on-chain DEX architecture
 
@@ -152,6 +154,21 @@ curl -sS -X POST https://evr-rpc-mainnet.evrmorecoin.org/rpc \
 - For DEX design:
   - reject wrapped-asset or off-chain settlement scope drift
   - require idempotent order identifiers, timeout behavior, and emergency pause controls
+  - atomic swap offers must contain exactly one native unique asset (`ROOT#TAG`) on the offered side
+  - atomic swap settlement may use native EVR or a tracked fungible main/sub asset; do not restrict settlement to EVR unless explicitly requested
+  - keep fungible-to-fungible trading in the order-book market flow rather than presenting a fungible asset as the atomic swap's offered collectible
+- For on-chain console operations:
+  - require a canonical messaging channel asset (`ROOT~CHANNEL`) for each console workflow
+  - fail closed before creating the governed operation when no active, chain-verified channel supports every required lifecycle stage
+  - issue messaging channels through the raw `_issue_new_asset` operation with quantity `1`, units `0`, `reissuable=0`, and no `remintable` field
+  - preserve the parent admin asset authorization output and return admin-asset and EVR change to their source addresses
+  - use raw transfer-with-message transactions for lifecycle events and run `testmempoolaccept` before broadcast
+- For asset IPFS metadata:
+  - upload canonical schema-versioned JSON before issuance and bind its CID in the asset's on-chain IPFS field
+  - require the on-chain CID to match the intended CID; do not trust a database-only CID
+  - download and validate metadata schema, version, asset name, workflow key, allowed stages, and strict rules before activating the asset or allowing governed operations
+  - treat missing, malformed, mismatched, pending, or unreachable metadata as unavailable; never silently downgrade to an unverified console path
+  - keep metadata immutable for issued one-of-one messaging channels; revisions use a newly named channel asset and deprecate the old policy
 
 8. Build optional EVRMore knowledge map when external claims matter
 - Start with official sources:
@@ -237,6 +254,15 @@ curl -sS -X POST https://evr-rpc-mainnet.evrmorecoin.org/rpc \
   - [dex-threat-model-template.md](./assets/dex-threat-model-template.md)
   - [dex-rollout-checklist.md](./assets/dex-rollout-checklist.md)
 
+14. Gate console operations on verified messaging channels
+- Resolve the active policy by canonical workflow key, selected network, active status, and highest valid version.
+- Verify the channel asset exists on the selected network and its on-chain IPFS CID resolves to metadata for that exact asset and workflow.
+- Require the policy's allowed stages to cover the complete operation lifecycle, including creation, lock, build failure, reconciliation, broadcast, cancellation, and expiry where applicable.
+- Verify a policy owner or manager address holds the channel asset before any operation that will publish events.
+- Perform these checks before writing the governed operation's database rows or reserving funds.
+- Persist each event payload checksum, metadata CID, channel policy version, raw transaction ID, and broadcast status for reconciliation.
+- Do not use public-to-local fallback for node-local subscription methods; expose subscription state as unavailable when endpoint mode is public.
+
 ## Decision Points
 - Endpoint routing:
   - If `POST /` fails with `Cannot POST /`, retry on `/rpc`.
@@ -250,12 +276,20 @@ curl -sS -X POST https://evr-rpc-mainnet.evrmorecoin.org/rpc \
   - If public claims cannot be backed by on-chain data, downgrade confidence and reduce risk.
 - DEX scope drift:
   - If any requirement introduces wrapped or off-chain settlement assets, reject and redesign to preserve on-chain-only settlement.
+- Messaging channel unavailable:
+  - If no active chain-verified policy covers all required stages, reject the governed console operation before database mutation or fund locking.
+- Asset metadata mismatch:
+  - If the on-chain IPFS CID is absent, differs from the intended CID, cannot be resolved, or fails schema validation, mark the policy invalid and block activation and governed operations.
 
 ## Completion Criteria
 - Source coverage:
   - official EVRMore pages reviewed and relevant sublinks triaged when external claims matter
 - RPC validation:
   - successful health checks on requested network(s)
+- Messaging and metadata validation:
+  - on-chain channel asset and IPFS CID verified against canonical metadata
+  - complete lifecycle stage coverage confirmed before console operation creation
+  - raw message transactions preflighted with `testmempoolaccept` before broadcast
 - Evidence quality:
   - each engineering or trading claim tied to at least one verified fact, command, or timestamped data point
 - Risk quality:

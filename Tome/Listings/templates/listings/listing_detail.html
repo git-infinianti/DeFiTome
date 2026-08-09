@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -255,8 +256,9 @@
             font-size: 0.9rem;
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
-<body>
+<body class="theme-{{ user_theme }}">
     <div class="container">
         <header>
             <div class="header-left">
@@ -264,7 +266,7 @@
             </div>
             <div class="header-right">
                 <nav>
-                    <a href="{% url 'listings' %}">Atomic Swaps</a>
+                    <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
                     <a href="{% url 'dex_orderbook' %}">DEX</a>
                     <a href="{% url 'lending_home' %}">Lending</a>
                     <a href="{% url 'my_swap_offers' %}">My Offers</a>
@@ -318,7 +320,7 @@
                 </div>
                 <div class="detail-box">
                     <div class="detail-label">Asset Offered</div>
-                    <div class="detail-value" style="font-size: 1rem;">{{ listing.token_offered }}</div>
+                    <div class="detail-value" style="font-size: 1rem;" title="{{ listing.token_offered|asset_tooltip }}">{{ listing.token_offered|market_symbol }}</div>
                 </div>
                 <div class="detail-box">
                     <div class="detail-label">Settlement Asset</div>
@@ -345,12 +347,12 @@
             <div class="swap-info">
                 <div class="swap-info-title">Atomic Asset Exchange</div>
                 <div class="swap-info-text">
-                    This atomic swap offers <strong>{{ listing.token_offered }}</strong> for <strong>{{ listing.preferred_token }}</strong>.
+                    This atomic swap offers <strong title="{{ listing.token_offered|asset_tooltip }}">{{ listing.token_offered|market_symbol }}</strong> for <strong title="{{ listing.preferred_token|asset_tooltip }}">{{ listing.preferred_token|market_symbol }}</strong>.
                 </div>
             </div>
             
             <div class="actions">
-                <a href="{% url 'listings' %}" class="btn btn-secondary">Back to Atomic Swaps</a>
+                <a href="{% url 'available_swap_offers' %}" class="btn btn-secondary">Back to Atomic Swaps</a>
                 {% if listing.seller != request.user and swap_offer %}
                     <a href="{% url 'accept_swap_offer' swap_offer.id %}" class="btn btn-primary">Review Atomic Swap</a>
                 {% endif %}

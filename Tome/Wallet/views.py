@@ -1,7 +1,8 @@
 from django.shortcuts import render, redirect
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.utils import timezone
@@ -11,14 +12,25 @@ from django.urls import reverse
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from collections import OrderedDict
 from datetime import datetime
+import csv
 import hashlib
 import hmac
 import time
 import requests
-from .models import UserWallet, WalletAddress, WalletProfile, SafeTradeCredentials, TrackedAsset
+from .models import AssetCreationRequest, UserWallet, WalletAddress, WalletProfile, WalletPreferences, SafeTradeCredentials, TrackedAsset, TrackedAssetHolding
 from .wallet import Wallet
-from .asset_tracking import sync_tracked_assets
+from .asset_creation import create_asset_for_user
+from .asset_tracking import classify_asset_type, sync_tracked_assets
 from .rpc import RPC, create_and_send_evr_transaction, create_and_send_asset_transfer_transaction
+from API.models import AtomicSwapTransferMessage, DexMarketEventMessage, MessageChannelPolicy
+from API.channel_console_service import (
+    burn_channel_asset_for_revision,
+    create_channel_console_asset_for_user,
+    get_owned_admin_assets,
+    scan_channel_console_assets,
+    set_channel_subscription,
+)
+from API.channel_console_lib import DEFAULT_ALLOWED_STAGES
 from hdwallet.entropies import BIP39Entropy
 from hdwallet.derivations import BIP44Derivation, CHANGES
 from hdwallet import cryptocurrencies
@@ -27,10 +39,106 @@ from Tome.qr import build_qr_data_uri
 
 
 SAFETRADE_BASE_URL = 'https://safe.trade/api/v2'
+DEFAULT_CHANNEL_DESCRIPTION = (
+    'Strict v1 console policy for atomic swap transfer messaging. '
+    'Designed for backward-compatible stage broadcasts and governance-safe test iteration.'
+)
+
+
+def _build_testnet_proposed_policies():
+    return [
+        {
+            'name': 'Atomic Swap Transfer v2 Proposal',
+            'target_version': 2,
+            'summary': 'Adds stronger reconciliation guidance and operator audit conventions while remaining backward compatible with v1 stage handling.',
+            'changes': [
+                'Keep the v1 stage sequence unchanged so existing broadcasters remain valid.',
+                'Add operator guidance for richer details payloads such as reconciliation_reason and tx_origin.',
+                'Preserve strict console mode and immutable payload expectations.',
+            ],
+        },
+        {
+            'name': 'Atomic Swap Transfer v3 Proposal',
+            'target_version': 3,
+            'summary': 'Introduces governance review and incident classification conventions without removing any v1 or v2-compatible behavior.',
+            'changes': [
+                'Retain existing channel key compatibility and ordering assumptions.',
+                'Standardize incident-oriented detail fields for failed and pending reconciliation stages.',
+                'Document rollout only for testnet until policy consumers confirm readiness.',
+            ],
+        },
+    ]
+
+
+def _get_testnet_proposal_by_version(target_version):
+    for proposal in _build_testnet_proposed_policies():
+        if int(proposal.get('target_version', 0)) == int(target_version):
+            return proposal
+    return None
 
 
 def _active_network_mode():
     return get_current_network_mode()
+
+
+def _channel_event_console(network_mode, query_params):
+    channel_id = str(query_params.get('event_channel') or '').strip()
+    status = str(query_params.get('event_status') or '').strip().lower()
+    event_type = str(query_params.get('event_type') or '').strip().lower()
+    stage = str(query_params.get('event_stage') or '').strip().lower()
+
+    common_filters = {'policy__network_mode': network_mode}
+    if channel_id.isdigit():
+        common_filters['policy_id'] = int(channel_id)
+    if status:
+        common_filters['status'] = status
+    if stage:
+        common_filters['stage'] = stage
+
+    rows = []
+    if event_type in {'', 'swap'}:
+        swap_messages = AtomicSwapTransferMessage.objects.filter(**common_filters).select_related(
+            'policy', 'created_by', 'swap_offer'
+        )[:200]
+        rows.extend({
+            'event_type': 'Swap',
+            'object_id': message.swap_offer_id,
+            'channel': message.policy,
+            'stage': message.stage,
+            'status': message.status,
+            'actor': message.created_by,
+            'payload': message.payload,
+            'payload_ipfs_cid': message.payload_ipfs_cid,
+            'broadcast_result': message.broadcast_result,
+            'error_message': message.error_message,
+            'created_at': message.created_at,
+        } for message in swap_messages)
+
+    if event_type in {'', 'market'}:
+        market_messages = DexMarketEventMessage.objects.filter(**common_filters).select_related(
+            'policy', 'created_by'
+        )[:200]
+        rows.extend({
+            'event_type': 'Market',
+            'object_id': message.order_id or message.trading_pair_id,
+            'channel': message.policy,
+            'stage': message.stage,
+            'status': message.status,
+            'actor': message.created_by,
+            'payload': message.payload,
+            'payload_ipfs_cid': message.payload_ipfs_cid,
+            'broadcast_result': message.broadcast_result,
+            'error_message': message.error_message,
+            'created_at': message.created_at,
+        } for message in market_messages)
+
+    rows.sort(key=lambda row: row['created_at'], reverse=True)
+    return rows[:200], {
+        'channel': channel_id,
+        'status': status,
+        'event_type': event_type,
+        'stage': stage,
+    }
 
 
 def _wallet_for_network(user_wallet):
@@ -91,9 +199,10 @@ def _sync_user_evr_balance(user_wallet):
         
         # Extract balance from response: {"balance": 0, "received": 0}
         if isinstance(balance_data, dict) and 'balance' in balance_data:
-            balance = Decimal(str(balance_data['balance']))
-            _set_stored_network_balance(user_wallet, balance, timezone.now())
-            return balance
+            balance_satoshis = Decimal(str(balance_data['balance']))
+            balance_evr = (balance_satoshis / Decimal('100000000')).quantize(Decimal('0.00000001'))
+            _set_stored_network_balance(user_wallet, balance_evr, timezone.now())
+            return balance_satoshis
         else:
             print(f"Unexpected balance response format: {balance_data}")
             return None
@@ -237,11 +346,51 @@ def _get_wallet_profiles(user):
     if not user_wallet:
         return WalletProfile.objects.none()
 
+    preferences = _get_or_create_wallet_preferences(user_wallet)
     _get_or_create_main_wallet_profile(user)
-    return WalletProfile.objects.select_related('address').filter(
+
+    queryset = WalletProfile.objects.select_related('address').filter(
         wallet=user_wallet,
         network_mode=_active_network_mode(),
-    ).order_by('-is_main', 'address__index', 'created_at', 'id')
+    )
+
+    sort_order = getattr(preferences, 'profile_sort_order', 'main_first')
+    if sort_order == 'name_asc':
+        return queryset.order_by('name', 'address__index', 'created_at', 'id')
+    if sort_order == 'name_desc':
+        return queryset.order_by('-name', 'address__index', 'created_at', 'id')
+    if sort_order == 'index_asc':
+        return queryset.order_by('address__index', '-is_main', 'created_at', 'id')
+    if sort_order == 'index_desc':
+        return queryset.order_by('-address__index', '-is_main', 'created_at', 'id')
+    return queryset.order_by('-is_main', 'address__index', 'created_at', 'id')
+
+
+def _get_or_create_wallet_preferences(user_wallet):
+    if not user_wallet:
+        return None
+
+    preferences, _created = WalletPreferences.objects.get_or_create(wallet=user_wallet)
+    return preferences
+
+
+def _normalize_transaction_limit(request, preferences=None):
+    default_limit = getattr(preferences, 'default_transaction_limit', 'all') or 'all'
+    requested_value = str(request.GET.get('limit', '') or '').strip().lower()
+    limit_token = requested_value or default_limit
+
+    if limit_token in ('', 'all'):
+        return None
+
+    try:
+        return max(1, min(250, int(limit_token)))
+    except (TypeError, ValueError):
+        if default_limit in ('', 'all'):
+            return None
+        try:
+            return max(1, min(250, int(default_limit)))
+        except (TypeError, ValueError):
+            return None
 
 
 def _next_external_address_index(user_wallet):
@@ -356,6 +505,67 @@ def _derive_user_wif_for_address(user, address):
         raise Exception(f'Unable to derive signing key for address {address}: {str(exc)}')
 
 
+@login_required
+def asset_creation_wizard(request):
+    if not (request.user.is_staff or request.user.is_superuser):
+        messages.error(request, 'Admin privileges are required to create assets.')
+        return redirect('portfolio')
+
+    network_mode = _active_network_mode()
+    if request.method == 'POST':
+        if network_mode != 'testnet':
+            messages.error(request, 'Asset creation through this wizard is restricted to testnet.')
+            return redirect('asset_creation_wizard')
+
+        source_address = _get_user_primary_address(request.user)
+        if not source_address:
+            messages.error(request, 'No primary wallet address is available for asset creation.')
+            return redirect('asset_creation_wizard')
+
+        try:
+            source_wif = _derive_user_wif_for_address(request.user, source_address)
+            result = create_asset_for_user(
+                user=request.user,
+                source_address=source_address,
+                source_wif=source_wif,
+                asset_kind=request.POST.get('asset_kind'),
+                asset_name=request.POST.get('asset_name'),
+                parameters={
+                    'quantity': request.POST.get('quantity'),
+                    'units': request.POST.get('units'),
+                    'reissuable': request.POST.get('reissuable') == 'on',
+                    'ipfs_hash': request.POST.get('ipfs_hash'),
+                    'verifier_string': request.POST.get('verifier_string'),
+                },
+                broadcast=request.POST.get('execution_mode') == 'broadcast',
+            )
+            if result['broadcast']:
+                messages.success(
+                    request,
+                    f"Broadcast {result['asset_name']}. TXID: {result['txid']}",
+                )
+            else:
+                messages.success(
+                    request,
+                    f"Mempool accepted {result['asset_name']} without broadcast. "
+                    f"Candidate TXID: {result['accepted_txid']}",
+                )
+        except Exception as exc:
+            messages.error(request, f'Asset creation failed: {str(exc)}')
+        return redirect('asset_creation_wizard')
+
+    recent_requests = AssetCreationRequest.objects.filter(
+        creator=request.user,
+        network_mode=network_mode,
+    )[:25]
+    return render(request, 'portfolio/asset_creation.html', {
+        'active_network_mode': network_mode,
+        'is_testnet': network_mode == 'testnet',
+        'asset_kind_choices': AssetCreationRequest.KIND_CHOICES,
+        'recent_requests': recent_requests,
+    })
+
+
 def _get_user_asset_balances(user, sync_tracking=True):
     """Return a dict of asset balances for the user's primary address."""
     address = _get_user_primary_address(user)
@@ -391,12 +601,94 @@ def _get_user_asset_balances(user, sync_tracking=True):
     return asset_balances, None
 
 
+def _get_stored_user_asset_balances(user, network_mode):
+    return {
+        holding.asset.symbol: holding.quantity
+        for holding in TrackedAssetHolding.objects.select_related('asset').filter(
+            user=user,
+            asset__network_mode=network_mode,
+            quantity__gt=0,
+        )
+    }
+
+
+def _get_stored_admin_assets(user, network_mode):
+    return sorted(
+        symbol
+        for symbol, quantity in _get_stored_user_asset_balances(user, network_mode).items()
+        if symbol.endswith('!') and quantity > 0
+    )
+
+
 def _format_asset_amount(amount):
     """Format Decimal amounts by trimming trailing zeros or flooring to int if whole."""
     amount_str = format(amount, 'f')
     if '.' in amount_str:
         amount_str = amount_str.rstrip('0').rstrip('.')
     return amount_str or '0'
+
+
+ASSET_PRESENTATION = {
+    TrackedAsset.ASSET_TYPE_MAIN: ('Main asset', 'A', 'Fungible root asset'),
+    TrackedAsset.ASSET_TYPE_SUB: ('Sub asset', '/', 'Scoped asset under a root'),
+    TrackedAsset.ASSET_TYPE_UNIQUE: ('Unique asset', '#', 'Indivisible collectible'),
+    TrackedAsset.ASSET_TYPE_MESSAGING: ('Message channel', '~', 'Broadcast and messaging channel'),
+    TrackedAsset.ASSET_TYPE_QUALIFIER: ('Qualifier', 'Q', 'Address eligibility credential'),
+    TrackedAsset.ASSET_TYPE_SUB_QUALIFIER: ('Sub qualifier', 'Q/', 'Scoped eligibility credential'),
+    TrackedAsset.ASSET_TYPE_RESTRICTED: ('Restricted asset', '$', 'Verifier-controlled asset'),
+    TrackedAsset.ASSET_TYPE_ADMIN: ('Administrator', '!', 'Issuance and governance control'),
+}
+
+
+def _build_portfolio_asset_items(user, asset_balances, network_mode):
+    tracked_assets = {
+        asset.symbol: asset
+        for asset in TrackedAsset.objects.filter(
+            network_mode=network_mode,
+            symbol__in=asset_balances.keys(),
+        )
+    }
+    type_order = {asset_type: index for index, asset_type in enumerate(ASSET_PRESENTATION)}
+    items = []
+
+    for symbol, quantity in asset_balances.items():
+        tracked_asset = tracked_assets.get(symbol)
+        asset_type = tracked_asset.asset_type if tracked_asset else classify_asset_type(symbol)
+        type_label, marker, description = ASSET_PRESENTATION[asset_type]
+        units = 0 if symbol.endswith('!') else int(tracked_asset.units if tracked_asset else 0)
+        items.append({
+            'symbol': symbol,
+            'quantity': _format_asset_amount(quantity),
+            'units': max(0, min(8, units)),
+            'asset_type': asset_type,
+            'type_label': type_label,
+            'marker': marker,
+            'description': description,
+            'is_unique': asset_type == TrackedAsset.ASSET_TYPE_UNIQUE,
+            'is_messaging': asset_type == TrackedAsset.ASSET_TYPE_MESSAGING,
+            'is_administrator': asset_type == TrackedAsset.ASSET_TYPE_ADMIN,
+        })
+
+    return sorted(items, key=lambda item: (type_order.get(item['asset_type'], 99), item['symbol']))
+
+
+def _build_recent_issuance_items(user, network_mode):
+    items = []
+    requests = AssetCreationRequest.objects.filter(
+        creator=user,
+        network_mode=network_mode,
+    ).exclude(broadcast_txid='')[:8]
+
+    for creation_request in requests:
+        items.append({
+            'asset_name': creation_request.asset_name,
+            'asset_kind': creation_request.get_asset_kind_display(),
+            'txid': creation_request.broadcast_txid,
+            'confirmations': None,
+            'is_confirmed': False,
+        })
+
+    return items
 
 
 def _amount_quantum_for_units(units):
@@ -438,6 +730,22 @@ def _get_asset_units(symbol):
         return max(0, min(8, int(asset_data.get('units', 8))))
     except (AttributeError, TypeError, ValueError):
         return 8
+
+
+def _get_stored_asset_units(symbol, network_mode=None):
+    normalized_symbol = str(symbol or '').strip().upper()
+    if normalized_symbol == 'EVR':
+        return 8
+    if normalized_symbol.endswith('!'):
+        return 0
+
+    units = TrackedAsset.objects.filter(
+        symbol=normalized_symbol,
+        network_mode=network_mode or _active_network_mode(),
+    ).values_list('units', flat=True).first()
+    if units is None:
+        return 8
+    return max(0, min(8, int(units or 0)))
 
 
 def _normalize_amount_for_units(raw_amount, units):
@@ -760,7 +1068,8 @@ def portfolio(request):
     # Get the user's wallet if it exists using the OneToOne relationship
     user_wallet = getattr(request.user, 'user_wallet', None)
     safe_trade_credentials = getattr(request.user, 'safe_trade_credentials', None)
-    safe_trade_server_ip = _get_server_public_ip()
+    safe_trade_server_ip = None
+    wallet_preferences = _get_or_create_wallet_preferences(user_wallet)
     
     # Create wallet on form submission
     if request.method == 'POST':
@@ -879,17 +1188,439 @@ def portfolio(request):
             messages.success(request, f'Wallet "{wallet_name}" created successfully!')
             return redirect('portfolio')
     
+    network_mode = _active_network_mode()
+    asset_balances = _get_stored_user_asset_balances(request.user, network_mode) if user_wallet else {}
+    asset_balance_error = None
+
     context = {
         'user_wallet': user_wallet,
+        'wallet_preferences': wallet_preferences,
         'safe_trade_credentials': safe_trade_credentials,
         'safe_trade_member_info': safe_trade_credentials.member_info if safe_trade_credentials else None,
         'safe_trade_server_ip': safe_trade_server_ip,
+        'portfolio_assets': _build_portfolio_asset_items(request.user, asset_balances, network_mode),
+        'asset_balance_error': asset_balance_error,
+        'recent_asset_issuances': _build_recent_issuance_items(request.user, network_mode),
     }
     return render(request, 'portfolio/wallet.html', context)
 
+
+@login_required
+def messaging_channel_management(request):
+    """Admin panel for creating and reviewing strict messaging channel console assets."""
+    if not (request.user.is_staff or request.user.is_superuser):
+        messages.error(request, 'Admin privileges are required to manage messaging channels.')
+        return redirect('portfolio')
+
+    current_network_mode = _active_network_mode()
+    owned_admin_assets = _get_stored_admin_assets(request.user, current_network_mode)
+    is_testnet = current_network_mode == 'testnet'
+    selected_policy = None
+
+    if is_testnet and request.GET.get('policy_id'):
+        selected_policy = MessageChannelPolicy.objects.filter(
+            id=request.GET.get('policy_id'),
+            manager_account=request.user,
+        ).first()
+
+    creation_result = None
+    if request.method == 'POST':
+        action = str(request.POST.get('action') or 'create_channel').strip().lower()
+
+        if action in {'subscribe_channel', 'unsubscribe_channel'}:
+            asset_name = str(request.POST.get('asset_name') or '').strip().upper()
+            try:
+                result = set_channel_subscription(
+                    asset_name,
+                    subscribe=action == 'subscribe_channel',
+                    network_mode=current_network_mode,
+                )
+                verb = 'Subscribed to' if result['subscribed'] else 'Unsubscribed from'
+                messages.success(request, f"{verb} verified channel {result['asset_name']}.")
+            except Exception as exc:
+                messages.error(request, f'Unable to update channel subscription: {exc}')
+            return redirect('messaging_channel_management')
+
+        if action == 'burn_channel_revision':
+            asset_name = str(request.POST.get('asset_name') or '').strip().upper()
+            if request.POST.get('confirm_revision_burn') != '1':
+                messages.error(request, 'Revision burn confirmation is required.')
+                return redirect('messaging_channel_management')
+            try:
+                result = burn_channel_asset_for_revision(
+                    request.user,
+                    asset_name,
+                    network_mode=current_network_mode,
+                )
+                messages.success(
+                    request,
+                    f"Burned {result['asset_name']} for revision in raw transaction {result['txid']}.",
+                )
+            except Exception as exc:
+                messages.error(request, f'Unable to burn messaging channel for revision: {exc}')
+            return redirect('messaging_channel_management')
+
+        if action == 'deprecate_policy':
+            policy_id = request.POST.get('policy_id')
+            policy = MessageChannelPolicy.objects.filter(
+                id=policy_id,
+                manager_account=request.user,
+            ).first()
+            if not policy:
+                messages.error(request, 'Policy not found or not managed by your account.')
+            elif policy.status != 'active':
+                messages.info(request, 'Policy is already not active.')
+            else:
+                policy.status = 'deprecated'
+                policy.save(update_fields=['status', 'updated_at'])
+                messages.success(request, f'Deprecated policy {policy.channel_key} v{policy.version}.')
+            return redirect('messaging_channel_management')
+
+        if action == 'promote_proposal_to_draft':
+            if not is_testnet:
+                messages.error(request, 'Draft promotion from proposals is restricted to testnet.')
+                return redirect('messaging_channel_management')
+
+            policy_id = request.POST.get('policy_id')
+            proposal_version = request.POST.get('proposal_version')
+            source_policy = MessageChannelPolicy.objects.filter(
+                id=policy_id,
+                manager_account=request.user,
+                network_mode='testnet',
+            ).first()
+            proposal = _get_testnet_proposal_by_version(proposal_version or 0)
+
+            if not source_policy or not proposal:
+                messages.error(request, 'Unable to resolve the selected policy proposal for draft promotion.')
+                return redirect('messaging_channel_management')
+
+            draft_version = int(proposal['target_version'])
+            existing_draft = MessageChannelPolicy.objects.filter(
+                channel_key=source_policy.channel_key,
+                network_mode='testnet',
+                version=draft_version,
+            ).first()
+            if existing_draft:
+                messages.info(request, f'Draft v{draft_version} already exists for {source_policy.channel_key}.')
+                return redirect('messaging_channel_management')
+
+            strict_rules = dict(source_policy.strict_rules or {})
+            strict_rules.update({
+                'description': proposal['summary'],
+                'proposal_changes': proposal['changes'],
+                'proposal_name': proposal['name'],
+                'proposal_status': 'draft',
+            })
+
+            MessageChannelPolicy.objects.create(
+                channel_key=source_policy.channel_key,
+                channel_name=source_policy.channel_name,
+                network_mode='testnet',
+                version=draft_version,
+                status='draft',
+                owner_account=source_policy.owner_account,
+                manager_account=request.user,
+                schema_name=source_policy.schema_name,
+                schema_version=source_policy.schema_version,
+                allowed_stages=source_policy.allowed_stages,
+                strict_rules=strict_rules,
+                is_locked=source_policy.is_locked,
+            )
+            messages.success(request, f'Created draft policy v{draft_version} for {source_policy.channel_key} from the selected proposal.')
+            return redirect('messaging_channel_management')
+
+        allowed_stages_raw = str(request.POST.get('allowed_stages') or '').strip()
+        allowed_stages = [
+            stage.strip().lower()
+            for stage in allowed_stages_raw.split(',')
+            if stage.strip()
+        ]
+        if not allowed_stages:
+            allowed_stages = list(DEFAULT_ALLOWED_STAGES)
+
+        strict_rules = {
+            'console_mode': 'strict',
+            'immutable_payload': request.POST.get('immutable_payload') == 'on',
+            'allow_unregistered_keys': request.POST.get('allow_unregistered_keys') == 'on',
+            'auto_broadcast': request.POST.get('auto_broadcast') == 'on',
+        }
+
+        payload = {
+            'admin_asset': request.POST.get('admin_asset'),
+            'channel_tag': request.POST.get('channel_tag'),
+            'channel_key': request.POST.get('channel_key'),
+            'channel_name': request.POST.get('channel_name'),
+            'network_mode': request.POST.get('network_mode') or current_network_mode,
+            'metadata': {
+                'description': request.POST.get('description') or '',
+                'allowed_stages': allowed_stages,
+                'strict_rules': strict_rules,
+            },
+        }
+
+        selected_admin_asset_value = str(payload.get('admin_asset') or '').strip().upper()
+        if selected_admin_asset_value not in owned_admin_assets:
+            messages.error(request, 'Select an admin asset that you currently own on this network.')
+            return redirect('messaging_channel_management')
+
+        requested_version = str(request.POST.get('channel_version') or '').strip()
+        if requested_version:
+            payload['channel_version'] = requested_version
+
+        to_address = str(request.POST.get('to_address') or '').strip()
+        change_address = str(request.POST.get('change_address') or '').strip()
+        if to_address:
+            payload['to_address'] = to_address
+        if change_address:
+            payload['change_address'] = change_address
+
+        try:
+            creation_result = create_channel_console_asset_for_user(request.user, payload)
+            if creation_result.get('asset_already_exists'):
+                messages.info(
+                    request,
+                    (
+                        f"Channel asset {creation_result['channel_asset_name']} already exists on-chain; "
+                        'created a new local policy version without re-issuing the asset.'
+                    ),
+                )
+            messages.success(
+                request,
+                f"Created channel {creation_result['channel_asset_name']} with policy version {creation_result['channel_policy']['version']}",
+            )
+            return redirect('messaging_channel_management')
+        except ValueError as exc:
+            messages.error(request, str(exc))
+        except Exception as exc:
+            messages.error(request, f'Failed to create messaging channel: {exc}')
+
+    if request.GET.get('export') == 'scan_json':
+        count = max(1, min(200, int(request.GET.get('count', 50))))
+        start = max(0, int(request.GET.get('start', 0)))
+        cache_key = f'channel-scan:{current_network_mode}:{start}:{count}'
+        scan_export = None if request.GET.get('refresh') == '1' else cache.get(cache_key)
+        if scan_export is None:
+            scan_export = scan_channel_console_assets(
+                asset_pattern='*~*',
+                count=count,
+                start=start,
+                network_mode=current_network_mode,
+            )
+            cache.set(cache_key, scan_export, timeout=30)
+        return JsonResponse({
+            'success': True,
+            'network_mode': current_network_mode,
+            'count': count,
+            'start': start,
+            'valid_channels': scan_export.get('valid_channels', []),
+            'pending_channels': scan_export.get('pending_channels', []),
+            'invalid_channels': scan_export.get('invalid_channels', []),
+            'scan_error': scan_export.get('scan_error', ''),
+            'subscription_state_available': scan_export.get('subscription_state_available', False),
+        })
+
+    if request.GET.get('export') == 'scan_csv':
+        count = max(1, min(200, int(request.GET.get('count', 50))))
+        start = max(0, int(request.GET.get('start', 0)))
+        scan_export = scan_channel_console_assets(
+            asset_pattern='*~*',
+            count=count,
+            start=start,
+            network_mode=current_network_mode,
+        )
+
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="channel_scan.csv"'
+        writer = csv.writer(response)
+        writer.writerow(['status', 'asset_name', 'channel_key', 'ipfs_cid', 'allowed_stages', 'console_type', 'error'])
+
+        for row in scan_export.get('valid_channels', []):
+            writer.writerow([
+                'valid',
+                row.get('asset_name', ''),
+                row.get('channel_key', ''),
+                row.get('ipfs_cid', ''),
+                '|'.join(row.get('allowed_stages', []) or []),
+                row.get('console_type', ''),
+                '',
+            ])
+        for row in scan_export.get('pending_channels', []):
+            writer.writerow([
+                'pending',
+                row.get('asset_name', ''),
+                row.get('channel_key', ''),
+                row.get('intended_ipfs_cid', ''),
+                '',
+                '',
+                'awaiting_confirmation',
+            ])
+        for row in scan_export.get('invalid_channels', []):
+            writer.writerow([
+                'invalid',
+                row.get('asset_name', ''),
+                '',
+                '',
+                '',
+                '',
+                row.get('error', ''),
+            ])
+        return response
+
+    scan_result = {
+        'valid_channels': [],
+        'pending_channels': [],
+        'invalid_channels': [],
+        'scan_error': '',
+        'network_mode': current_network_mode,
+        'is_deferred': True,
+    }
+
+    managed_policies = MessageChannelPolicy.objects.filter(
+        manager_account=request.user,
+    ).order_by('channel_key', '-version')
+    event_rows, event_filters = _channel_event_console(current_network_mode, request.GET)
+    event_channels = MessageChannelPolicy.objects.filter(
+        network_mode=current_network_mode,
+    ).order_by('channel_name', '-version')
+
+    selected_admin_asset = ''
+    selected_channel_tag = ''
+    selected_channel_key = ''
+    selected_channel_name = ''
+    selected_channel_version = '1'
+    selected_description = DEFAULT_CHANNEL_DESCRIPTION
+    selected_allowed_stages = ', '.join(DEFAULT_ALLOWED_STAGES)
+    selected_strict_rules = {
+        'immutable_payload': True,
+        'allow_unregistered_keys': False,
+        'auto_broadcast': False,
+    }
+
+    if selected_policy:
+        selected_channel_key = selected_policy.channel_key
+        selected_channel_name = selected_policy.channel_name
+        selected_channel_version = str(int(selected_policy.version))
+        if '~' in selected_policy.channel_name:
+            root = selected_policy.channel_name.split('~', 1)[0].strip().upper()
+            selected_admin_asset = f'{root}!'
+            selected_channel_tag = selected_policy.channel_name.split('~', 1)[1].strip()
+        if selected_policy.allowed_stages:
+            selected_allowed_stages = ', '.join(selected_policy.allowed_stages)
+        if isinstance(selected_policy.strict_rules, dict):
+            selected_description = str(selected_policy.strict_rules.get('description') or DEFAULT_CHANNEL_DESCRIPTION).strip()
+            selected_strict_rules.update({
+                'immutable_payload': bool(selected_policy.strict_rules.get('immutable_payload', True)),
+                'allow_unregistered_keys': bool(selected_policy.strict_rules.get('allow_unregistered_keys', False)),
+                'auto_broadcast': bool(selected_policy.strict_rules.get('auto_broadcast', False)),
+            })
+
+    context = {
+        'default_allowed_stages': ', '.join(DEFAULT_ALLOWED_STAGES),
+        'active_network_mode': current_network_mode,
+        'scan_result': scan_result,
+        'creation_result': creation_result,
+        'owned_admin_assets': owned_admin_assets,
+        'managed_policies': managed_policies,
+        'event_rows': event_rows,
+        'event_filters': event_filters,
+        'event_channels': event_channels,
+        'selected_policy': selected_policy,
+        'selected_admin_asset': selected_admin_asset,
+        'selected_channel_tag': selected_channel_tag,
+        'selected_channel_key': selected_channel_key,
+        'selected_channel_name': selected_channel_name,
+        'selected_channel_version': selected_channel_version,
+        'selected_description': selected_description,
+        'selected_allowed_stages': selected_allowed_stages,
+        'selected_strict_rules': selected_strict_rules,
+        'is_testnet': is_testnet,
+        'proposed_policies': _build_testnet_proposed_policies() if is_testnet else [],
+    }
+    return render(request, 'portfolio/messaging_channels.html', context)
+
+
+@login_required
+def wallet_preferences(request):
+    """Display and update wallet-specific preferences."""
+    user_wallet = getattr(request.user, 'user_wallet', None)
+    if not user_wallet:
+        messages.error(request, 'No wallet found to configure preferences.')
+        return redirect('portfolio')
+
+    preferences = _get_or_create_wallet_preferences(user_wallet)
+
+    if request.method == 'POST':
+        preferences.default_home_tab = str(request.POST.get('default_home_tab', preferences.default_home_tab) or preferences.default_home_tab).strip()
+        preferences.default_send_currency = str(request.POST.get('default_send_currency', preferences.default_send_currency) or preferences.default_send_currency).strip().upper() or 'EVR'
+        preferences.default_transaction_limit = str(request.POST.get('default_transaction_limit', preferences.default_transaction_limit) or preferences.default_transaction_limit).strip().lower()
+        preferences.default_confirmation_behavior = str(request.POST.get('default_confirmation_behavior', preferences.default_confirmation_behavior) or preferences.default_confirmation_behavior).strip().lower()
+        preferences.default_receive_qr_style = str(request.POST.get('default_receive_qr_style', preferences.default_receive_qr_style) or preferences.default_receive_qr_style).strip().lower()
+        preferences.address_label_style = str(request.POST.get('address_label_style', preferences.address_label_style) or preferences.address_label_style).strip().lower()
+        preferences.profile_sort_order = str(request.POST.get('profile_sort_order', preferences.profile_sort_order) or preferences.profile_sort_order).strip().lower()
+        preferences.auto_sync_balance = request.POST.get('auto_sync_balance') == 'on'
+        preferences.auto_validate_recipient = request.POST.get('auto_validate_recipient') == 'on'
+        preferences.auto_copy_receive_address = request.POST.get('auto_copy_receive_address') == 'on'
+        preferences.show_receive_qr = request.POST.get('show_receive_qr') == 'on'
+        preferences.show_zero_balances = request.POST.get('show_zero_balances') == 'on'
+        preferences.show_change_addresses = request.POST.get('show_change_addresses') == 'on'
+        preferences.show_profile_network_badges = request.POST.get('show_profile_network_badges') == 'on'
+        preferences.highlight_main_profile = request.POST.get('highlight_main_profile') == 'on'
+        preferences.hide_balance_on_open = request.POST.get('hide_balance_on_open') == 'on'
+        preferences.compact_cards = request.POST.get('compact_cards') == 'on'
+        preferences.confirm_external_links = request.POST.get('confirm_external_links') == 'on'
+        preferences.enable_address_tooltips = request.POST.get('enable_address_tooltips') == 'on'
+        preferences.prefer_main_profile_on_receive = request.POST.get('prefer_main_profile_on_receive') == 'on'
+        preferences.nft_image_uri_template = str(
+            request.POST.get('nft_image_uri_template', preferences.nft_image_uri_template)
+            or preferences.nft_image_uri_template
+        ).strip()
+
+        refresh_seconds_raw = str(request.POST.get('transaction_refresh_seconds', preferences.transaction_refresh_seconds) or preferences.transaction_refresh_seconds).strip()
+        try:
+            preferences.transaction_refresh_seconds = max(5, min(300, int(refresh_seconds_raw)))
+        except (TypeError, ValueError):
+            preferences.transaction_refresh_seconds = 30
+
+        if preferences.default_home_tab not in {choice[0] for choice in WalletPreferences.TAB_CHOICES}:
+            preferences.default_home_tab = WalletPreferences.TAB_SEND
+        if preferences.default_transaction_limit not in {choice[0] for choice in WalletPreferences.TRANSACTION_LIMIT_CHOICES}:
+            preferences.default_transaction_limit = WalletPreferences.TRANSACTION_LIMIT_ALL
+        if preferences.default_confirmation_behavior not in {choice[0] for choice in WalletPreferences.SEND_CONFIRMATION_CHOICES}:
+            preferences.default_confirmation_behavior = 'always'
+        if preferences.default_receive_qr_style not in {choice[0] for choice in WalletPreferences.QR_STYLE_CHOICES}:
+            preferences.default_receive_qr_style = 'classic'
+        if preferences.address_label_style not in {choice[0] for choice in WalletPreferences.ADDRESS_LABEL_CHOICES}:
+            preferences.address_label_style = 'full'
+        if preferences.profile_sort_order not in {choice[0] for choice in WalletPreferences.PROFILE_SORT_CHOICES}:
+            preferences.profile_sort_order = 'main_first'
+        if not preferences.nft_image_uri_template:
+            preferences.nft_image_uri_template = 'ipfs://{cid}/{filename}'
+        if '{cid}' not in preferences.nft_image_uri_template:
+            messages.error(request, 'NFT image URI template must include {cid}.')
+            return redirect('wallet_preferences')
+        if '{filename}' not in preferences.nft_image_uri_template:
+            messages.error(request, 'NFT image URI template must include {filename}.')
+            return redirect('wallet_preferences')
+
+        preferences.save()
+        messages.success(request, 'Wallet preferences updated.')
+        return redirect('wallet_preferences')
+
+    context = {
+        'user_wallet': user_wallet,
+        'preferences': preferences,
+        'tab_options': WalletPreferences.TAB_CHOICES,
+        'transaction_limit_options': WalletPreferences.TRANSACTION_LIMIT_CHOICES,
+        'confirmation_options': WalletPreferences.SEND_CONFIRMATION_CHOICES,
+        'qr_style_options': WalletPreferences.QR_STYLE_CHOICES,
+        'address_label_options': WalletPreferences.ADDRESS_LABEL_CHOICES,
+        'profile_sort_options': WalletPreferences.PROFILE_SORT_CHOICES,
+    }
+    return render(request, 'portfolio/preferences.html', context)
+
 @login_required
 def sync_balance(request):
-    """Sync user's EVR balance from the blockchain"""
+    """Explicitly refresh the user's EVR and asset balance snapshots."""
     user_wallet = getattr(request.user, 'user_wallet', None)
     
     if not user_wallet:
@@ -898,10 +1629,17 @@ def sync_balance(request):
     
     try:
         balance = _sync_user_evr_balance(user_wallet)
+        _asset_balances, asset_error = _get_user_asset_balances(request.user)
         if balance is not None:
             # Convert from base unit (satoshis) to display unit by multiplying by 1e-8
             display_balance = balance * Decimal('1e-8')
-            messages.success(request, f'Balance synced successfully! Current balance: {display_balance:.8f} EVR')
+            if asset_error:
+                messages.warning(
+                    request,
+                    f'EVR synced to {display_balance:.8f}; asset balances could not be refreshed.',
+                )
+            else:
+                messages.success(request, f'Balances synced successfully! Current EVR: {display_balance:.8f}')
         else:
             messages.error(request, 'Failed to sync balance. Please try again.')
     except Exception as e:
@@ -937,19 +1675,16 @@ def wallet_transactions(request):
         messages.error(request, 'No wallet found to view transactions.')
         return redirect('portfolio')
 
+    preferences = _get_or_create_wallet_preferences(user_wallet)
+
     wallet_addresses = _get_user_wallet_addresses(request.user, include_change=True)
     if not wallet_addresses:
         messages.error(request, 'Unable to determine your wallet addresses.')
         return redirect('portfolio')
 
-    requested_limit = str(request.GET.get('limit', 'all') or 'all').strip().lower()
-    if requested_limit in ('', 'all'):
+    limit = _normalize_transaction_limit(request, preferences)
+    if request.GET.get('limit') is None and preferences and preferences.default_transaction_limit == 'all':
         limit = None
-    else:
-        try:
-            limit = max(1, min(250, int(requested_limit)))
-        except (TypeError, ValueError):
-            limit = None
 
     raw_txids = []
     total_indexed_transactions = 0
@@ -980,6 +1715,7 @@ def wallet_transactions(request):
 
     context = {
         'user_wallet': user_wallet,
+        'wallet_preferences': preferences,
         'address': wallet_addresses[0],
         'address_count': len(wallet_addresses),
         'network_mode': _active_network_mode(),
@@ -1004,6 +1740,8 @@ def recieve_funds(request):
     if not user_wallet:
         messages.error(request, 'No wallet found to receive funds.')
         return redirect('portfolio')
+
+    preferences = _get_or_create_wallet_preferences(user_wallet)
     
     # Get wallet address
     address = _get_user_primary_address(request.user)
@@ -1012,6 +1750,7 @@ def recieve_funds(request):
     context = {
         'address': address,
         'address_qr_data_uri': address_qr_data_uri,
+        'wallet_preferences': preferences,
     }
     return render(request, 'portfolio/receive.html', context)
 
@@ -1024,6 +1763,8 @@ def send_funds(request):
         messages.error(request, 'No wallet found to send funds.')
         return redirect('portfolio')
 
+    preferences = _get_or_create_wallet_preferences(user_wallet)
+
     if request.method == 'POST':
         action = str(request.POST.get('action', 'send_funds') or 'send_funds').strip().lower()
         if action == 'create_profile':
@@ -1031,18 +1772,14 @@ def send_funds(request):
         if action == 'set_main_profile':
             return _set_main_wallet_profile(request)
     
-    # Read-only fetch for send form rendering to avoid write contention.
-    asset_balances, _ = _get_user_asset_balances(request.user, sync_tracking=False)
-    evr_balance_sats = _sync_user_evr_balance(user_wallet)
-    if evr_balance_sats is not None:
-        evr_balance = evr_balance_sats * Decimal('1e-8')
-    else:
-        evr_balance = _get_stored_network_balance(user_wallet) * Decimal('1e-8')
+    network_mode = _active_network_mode()
+    asset_balances = _get_stored_user_asset_balances(request.user, network_mode)
+    evr_balance = _get_stored_network_balance(user_wallet)
     asset_options = []
     for symbol, amount in sorted(asset_balances.items()):
         if symbol == 'EVR':
             continue
-        units = _get_asset_units(symbol)
+        units = _get_stored_asset_units(symbol, network_mode)
         step = _step_string_for_units(units)
         asset_options.append({
             'symbol': symbol,
@@ -1056,8 +1793,15 @@ def send_funds(request):
     receive_address_qr_data_uri = build_qr_data_uri(receive_address)
     main_profile = _get_or_create_main_wallet_profile(request.user)
     wallet_profiles = _get_wallet_profiles(request.user)
+    default_send_currency = (preferences.default_send_currency if preferences else 'EVR').upper()
+    default_home_tab = preferences.default_home_tab if preferences else 'send'
 
     if request.method == 'POST':
+        asset_balances, _ = _get_user_asset_balances(request.user, sync_tracking=False)
+        evr_balance_sats = _sync_user_evr_balance(user_wallet)
+        if evr_balance_sats is not None:
+            evr_balance = evr_balance_sats * Decimal('1e-8')
+
         currency = request.POST.get('currency', 'EVR').strip().upper()
         recipient_address = request.POST.get('recipient_address', '').strip()
         amount = request.POST.get('amount', '').strip()
@@ -1098,14 +1842,6 @@ def send_funds(request):
             messages.error(request, f'Unable to derive sender signing key: {str(e)}')
             return redirect('send_funds')
 
-        coin_change_address = from_address
-        if currency != 'EVR':
-            try:
-                coin_change_address = _ensure_change_wallet_address(user_wallet).address
-            except Exception as e:
-                messages.error(request, f'Unable to determine a change wallet address: {str(e)}')
-                return redirect('send_funds')
-
         # Create and send transaction via createrawtransaction
         try:
             if currency == 'EVR':
@@ -1113,7 +1849,6 @@ def send_funds(request):
                     from_address=from_address,
                     to_address=recipient_address,
                     amount_evr=amount_decimal,
-                    change_address=coin_change_address,
                     wif_keys=[sender_wif],
                 )
             else:
@@ -1122,8 +1857,6 @@ def send_funds(request):
                     to_address=recipient_address,
                     asset_name=currency,
                     asset_quantity=amount_decimal,
-                    change_address=coin_change_address,
-                    asset_change_address=from_address,
                     wif_keys=[sender_wif],
                 )
 
@@ -1139,6 +1872,9 @@ def send_funds(request):
         'evr_balance': evr_balance,
         'main_profile': main_profile,
         'wallet_profiles': wallet_profiles,
+        'wallet_preferences': preferences,
+        'default_send_currency': default_send_currency,
+        'default_home_tab': default_home_tab,
         'receive_address': receive_address,
         'receive_address_qr_data_uri': receive_address_qr_data_uri,
     })

@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -450,6 +451,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -458,7 +460,7 @@
             <nav>
                 <a href="{% url 'home' %}">Home</a>
                 <a href="{% url 'explorer' %}">Explorer</a>
-                <a href="{% url 'listings' %}">Atomic Swaps</a>
+                <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
                 <a href="{% url 'rates_marketplace' %}">Rates</a>
                 <a href="{% url 'lending_home' %}">Lending</a>
                 <a href="{% url 'settings' %}">Settings</a>
@@ -531,7 +533,7 @@
                     <div class="variable-pools">
                         {% for pool in lending_pools %}
                             <div class="pool-card" onclick="selectPool('{{ pool.id }}')">
-                                <div class="pool-token">{{ pool.token_symbol }}</div>
+                                <div class="pool-token" title="{{ pool.token_symbol|asset_tooltip }}">{{ pool.token_symbol|market_symbol }}</div>
                                 <div class="pool-stats">
                                     <div class="pool-stat">
                                         <span class="pool-stat-label">Current APR</span>
@@ -552,7 +554,7 @@
                             <label>Pool</label>
                             <select name="pool_id" id="pool-select" required>
                                 {% for pool in lending_pools %}
-                                    <option value="{{ pool.id }}">{{ pool.token_symbol }} - {{ pool.current_supply_rate|floatformat:2 }}% APR</option>
+                                    <option value="{{ pool.id }}" title="{{ pool.token_symbol|asset_tooltip }}">{{ pool.token_symbol|market_symbol }} - {{ pool.current_supply_rate|floatformat:2 }}% APR</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -587,7 +589,7 @@
                             <div class="position-info">
                                 <div class="position-row">
                                     <span class="position-label">Principal</span>
-                                    <span class="position-value">{{ bond.principal_amount }} {{ bond.token_symbol }}</span>
+                                    <span class="position-value">{{ bond.principal_amount }} <span title="{{ bond.token_symbol|asset_tooltip }}">{{ bond.token_symbol|market_symbol }}</span></span>
                                 </div>
                                 <div class="position-row">
                                     <span class="position-label">Fixed APR</span>
@@ -595,7 +597,7 @@
                                 </div>
                                 <div class="position-row">
                                     <span class="position-label">Maturity Value</span>
-                                    <span class="position-value">{{ bond.maturity_amount }} {{ bond.token_symbol }}</span>
+                                    <span class="position-value">{{ bond.maturity_amount }} <span title="{{ bond.token_symbol|asset_tooltip }}">{{ bond.token_symbol|market_symbol }}</span></span>
                                 </div>
                                 <div class="position-row">
                                     <span class="position-label">Days Remaining</span>
@@ -631,7 +633,7 @@
                             <div class="position-info">
                                 <div class="position-row">
                                     <span class="position-label">Balance</span>
-                                    <span class="position-value">{{ savings.total_balance }} {{ savings.pool.token_symbol }}</span>
+                                    <span class="position-value">{{ savings.total_balance }} <span title="{{ savings.pool.token_symbol|asset_tooltip }}">{{ savings.pool.token_symbol|market_symbol }}</span></span>
                                 </div>
                                 <div class="position-row">
                                     <span class="position-label">Current APR</span>
@@ -643,7 +645,7 @@
                                 </div>
                                 <div class="position-row">
                                     <span class="position-label">Accrued Interest</span>
-                                    <span class="position-value">{{ savings.accrued_interest }} {{ savings.pool.token_symbol }}</span>
+                                    <span class="position-value">{{ savings.accrued_interest }} <span title="{{ savings.pool.token_symbol|asset_tooltip }}">{{ savings.pool.token_symbol|market_symbol }}</span></span>
                                 </div>
                                 <div class="position-row">
                                     <span class="position-label">Opened</span>

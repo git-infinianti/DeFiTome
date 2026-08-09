@@ -1,0 +1,194 @@
+:root {
+    --market-bg: #101310;
+    --market-panel: #171c18;
+    --market-panel-raised: #1d241f;
+    --market-line: #303a32;
+    --market-text: #edf3ee;
+    --market-muted: #9aa79d;
+    --market-accent: #35c878;
+    --market-accent-strong: #24a961;
+    --market-warning: #f0b44d;
+    --market-danger: #ef6461;
+}
+
+body.theme-light {
+    --market-bg: #f4f7f5;
+    --market-panel: #ffffff;
+    --market-panel-raised: #eef4f0;
+    --market-line: #cfdad3;
+    --market-text: #17221d;
+    --market-muted: #64736b;
+    --market-accent: #087f5b;
+    --market-accent-strong: #056947;
+    --market-warning: #a86708;
+    --market-danger: #c2413a;
+}
+
+body {
+    --bg-gradient-start: var(--market-bg);
+    --bg-gradient-end: var(--market-bg);
+    --text-primary: var(--market-text);
+    --text-secondary: #d1dbd3;
+    --text-muted: var(--market-muted);
+    --border-color: var(--market-line);
+    --card-bg: var(--market-panel);
+    --card-bg-hover: var(--market-panel-raised);
+    --accent-primary: var(--market-accent);
+    --accent-secondary: var(--market-accent);
+    --accent-light: #6ee7a0;
+    --input-bg: #121713;
+    --input-focus-bg: #151c17;
+    background: var(--market-bg);
+    color: var(--market-text);
+    font-family: "Avenir Next", Avenir, "Trebuchet MS", sans-serif;
+}
+
+.logo,
+.page-title,
+.page-title h1 {
+    background: none;
+    color: var(--market-text);
+    -webkit-text-fill-color: currentColor;
+    letter-spacing: 0;
+}
+
+.logo::after {
+    content: "MARKET DEX";
+    display: inline-block;
+    margin-left: 10px;
+    color: var(--market-accent);
+    font-family: "Avenir Next", Avenir, sans-serif;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    vertical-align: middle;
+}
+
+nav a {
+    color: var(--market-muted);
+}
+
+nav a:hover {
+    color: var(--market-accent);
+}
+
+.wallet-balance-display {
+    background: rgba(53, 200, 120, 0.08);
+    border-color: rgba(53, 200, 120, 0.3);
+}
+
+.balance-amount {
+    color: var(--market-accent);
+}
+
+.btn,
+.btn-nav,
+.filter-btn,
+.form-input,
+select,
+input {
+    border-radius: 4px;
+}
+
+.btn-primary,
+.filter-btn.active,
+.order-btn.buy {
+    background: var(--market-accent);
+    color: #07120b;
+}
+
+.btn-primary:hover,
+.order-btn.buy:hover {
+    background: var(--market-accent-strong);
+    box-shadow: none;
+    transform: none;
+}
+
+.markets-table,
+.left-panel,
+.center-panel,
+.right-panel,
+.section,
+.form-container {
+    background: var(--market-panel);
+    border-color: var(--market-line);
+    border-radius: 4px;
+    box-shadow: none;
+}
+
+.markets-table thead,
+body.theme-light .markets-table thead {
+    background: var(--market-panel-raised);
+}
+
+.market-pair a {
+    color: var(--market-text) !important;
+}
+
+.instrument-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 3px 6px;
+    border: 1px solid var(--market-line);
+    border-radius: 3px;
+    color: var(--market-muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+.instrument-badge.security-capable {
+    border-color: rgba(240, 180, 77, 0.55);
+    color: var(--market-warning);
+}
+
+.pair-type {
+    margin-top: 5px;
+    color: var(--market-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+}
+
+.market-pair [title],
+.pair-name [title],
+.pair-display [title],
+.order-table [title],
+.form-label [title] {
+    cursor: help;
+    text-decoration: underline dotted var(--market-muted);
+    text-underline-offset: 3px;
+}
+
+.trade-buy,
+.price-positive,
+.side-buy {
+    color: var(--market-accent);
+}
+
+.trade-sell,
+.price-negative,
+.side-sell {
+    color: var(--market-danger);
+}
+
+@media (max-width: 840px) {
+    .header-left,
+    .header-right,
+    header {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    nav {
+        display: flex;
+        gap: 16px;
+        overflow-x: auto;
+        width: 100%;
+    }
+
+    nav a {
+        margin: 0;
+        white-space: nowrap;
+    }
+}

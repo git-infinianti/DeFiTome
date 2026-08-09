@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -277,6 +278,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -288,7 +290,7 @@
                 <nav>
                     <a href="{% url 'home' %}">Home</a>
                     <a href="{% url 'explorer' %}">Explorer</a>
-                    <a href="{% url 'listings' %}">Atomic Swaps</a>
+                    <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
                     <a href="{% url 'markets' %}">Markets</a>
                     <a href="{% url 'dex_orderbook' %}">DEX</a>
                     <a href="{% url 'lending_home' %}">Lending</a>
@@ -307,7 +309,8 @@
         
         <section class="page-title">
             <h1>Create Atomic Swap</h1>
-            <p>Offer an Evrmore asset for EVR in one on-chain settlement transaction.</p>
+            <p>Offer a unique Evrmore asset (NFT) for EVR in one on-chain settlement transaction.</p>
+            <p style="font-size: 0.95rem; margin-top: 0.5rem;">Active network: {{ network_mode|default:'testnet' }}</p>
         </section>
         
         {% if messages %}
@@ -325,82 +328,47 @@
                 {% csrf_token %}
                 
                 <div class="form-group">
-                    <label for="title">Asset Title</label>
-                    <input 
-                        type="text" 
-                        id="title" 
-                        name="title" 
-                        placeholder="e.g., Collection Piece #001"
-                        value="{{ title|default:'' }}"
-                        maxlength="200"
-                        required
-                    >
-                    <div class="help-text">A concise title for this atomic swap.</div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="description">Asset Description</label>
-                    <textarea 
-                        id="description" 
-                        name="description" 
-                        placeholder="Describe your item in detail..."
-                        required
-                    >{{ description|default:'' }}</textarea>
-                    <div class="help-text">Add context for the counterparty.</div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="price">EVR per Unit</label>
+                    <label for="price">Settlement Amount</label>
                     <input 
                         type="number" 
                         id="price" 
                         name="price" 
-                        step="0.00000001"
-                        min="0.00000001"
+                        step="{{ settlement_amount_step|default:'0.00000001' }}"
+                        min="{{ settlement_amount_step|default:'0.00000001' }}"
                         placeholder="0.00000000"
                         value="{{ price|default:'' }}"
                         required
                     >
-                    <div class="help-text">The EVR amount requested for each unit.</div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="quantity">Amount Offered</label>
-                    <input 
-                        type="number" 
-                        id="quantity" 
-                        name="quantity" 
-                        min="0.00000001"
-                        step="0.00000001"
-                        placeholder="0.00000000"
-                        value="{{ quantity|default:'' }}"
-                        readonly
-                        required
-                    >
-                    <div class="help-text">Uses the available balance for the selected asset.</div>
+                    <div class="help-text">Amount of the selected fungible settlement asset requested for this unique asset.</div>
                 </div>
                 
                 <div class="form-group" id="token-offered-group">
-                    <label for="token_offered">Asset Offered *</label>
+                    <label for="token_offered">Unique Asset Offered *</label>
                     <select id="token_offered" name="token_offered" required>
-                        <option value="">Select an asset</option>
+                        <option value="">Select a unique asset (ROOT#TAG)</option>
                         {% for asset in asset_options %}
-                            <option value="{{ asset.symbol }}" data-balance="{{ asset.balance_value }}" {% if token_offered == asset.symbol %}selected{% endif %}>
-                                {{ asset.symbol }}{% if asset.is_nft %} (NFT){% endif %} - {{ asset.balance_display }}
+                            <option value="{{ asset.symbol }}" title="{{ asset.symbol|asset_tooltip }}" data-balance="{{ asset.balance_value }}" {% if token_offered == asset.symbol %}selected{% endif %}>
+                                {{ asset.symbol|market_symbol }} (NFT) - {{ asset.balance_display }}
                             </option>
                         {% endfor %}
                     </select>
-                    <div class="help-text">Unique assets named ROOT#TAG are NFTs.</div>
+                    <div class="help-text">Only unique assets are allowed for atomic swap creation.</div>
                     {% if not asset_options %}
-                        <div class="help-text" style="color: var(--text-muted);">No assets found in your wallet.</div>
+                        <div class="help-text" style="color: var(--text-muted);">No unique assets found in your wallet.</div>
                     {% endif %}
                 </div>
                 
                 <div class="form-group">
                     <label for="preferred_token">Settlement Asset</label>
-                    <input id="preferred_token" name="preferred_token" value="EVR" readonly>
-                    <div class="help-text">Atomic swaps currently settle in EVR.</div>
+                    <select id="preferred_token" name="preferred_token" required>
+                        {% for token_symbol in settlement_token_options %}
+                            <option value="{{ token_symbol }}" title="{{ token_symbol|asset_tooltip }}" {% if preferred_token == token_symbol %}selected{% endif %}>{{ token_symbol|market_symbol }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="help-text">Choose EVR or a tracked fungible main/sub asset on this network.</div>
                 </div>
+
+                {{ settlement_token_units|json_script:"settlement-token-units-data" }}
                 
                 <div class="form-group">
                     <label for="counterparty">Counterparty (Optional)</label>
@@ -430,33 +398,157 @@
                 </div>
                 
                 <div class="form-actions">
-                    <a href="{% url 'listings' %}" class="btn btn-secondary">Cancel</a>
+                    <a href="{% url 'available_swap_offers' %}" class="btn btn-secondary">Cancel</a>
                     <button type="submit" class="btn btn-primary" {% if not asset_options %}disabled{% endif %}>Create Atomic Swap</button>
                 </div>
             </form>
+
+            {% if not asset_options and admin_asset_options %}
+                <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--border-color);">
+                <h3 style="margin-bottom: 1rem; color: var(--text-secondary);">Mint a New Unique Asset</h3>
+                <p class="help-text" style="margin-bottom: 1rem;">You have admin ownership assets. Mint a unique asset with standardized metadata, then list it after confirmation.</p>
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="mint_unique_asset">
+
+                    <div class="form-group">
+                        <label for="mint_admin_asset">Admin Asset</label>
+                        <select id="mint_admin_asset" name="mint_admin_asset" required>
+                            <option value="">Select admin asset</option>
+                            {% for admin_asset in admin_asset_options %}
+                                <option value="{{ admin_asset }}" {% if mint_admin_asset == admin_asset %}selected{% endif %}>{{ admin_asset }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mint_asset_tag">Unique Tag</label>
+                        <input id="mint_asset_tag" name="mint_asset_tag" value="{{ mint_asset_tag|default:'' }}" placeholder="e.g., 001" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mint_name">Metadata Name</label>
+                        <input id="mint_name" name="mint_name" value="{{ mint_name|default:'' }}" placeholder="e.g., Collection Piece #001">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mint_description">Metadata Description</label>
+                        <textarea id="mint_description" name="mint_description" placeholder="Describe this unique asset">{{ mint_description|default:'' }}</textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mint_image_file">Metadata Image File</label>
+                        <input id="mint_image_file" name="mint_image_file" type="file" accept="image/*">
+                        <div class="help-text">Upload one image for metadata. The system stores it and links it for later display.</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mint_existing_upload_id">Use Existing Uploaded Media (Optional)</label>
+                        <select id="mint_existing_upload_id" name="mint_existing_upload_id">
+                            <option value="">Select previously uploaded image</option>
+                            {% for media_upload in media_upload_options %}
+                                <option value="{{ media_upload.pk }}" {% if mint_existing_upload_id|stringformat:"s" == media_upload.pk|stringformat:"s" %}selected{% endif %}>
+                                    {{ media_upload.display_filename }} ({{ media_upload.ipfs_hash }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <div class="help-text">Metadata v1 supports one image only. Selecting an existing image disables new upload.</div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Mint Unique Asset</button>
+                    </div>
+                </form>
+            {% endif %}
+
+            {% if recent_mint_requests %}
+                <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--border-color);">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem;">
+                    <h3 style="color: var(--text-secondary);">Recent Mint Requests</h3>
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="refresh_mint_statuses">
+                        <button type="submit" class="btn btn-secondary" style="padding: 0.5rem 1rem;">Refresh Status</button>
+                    </form>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.92rem;">
+                        <thead>
+                            <tr style="text-align: left; border-bottom: 1px solid var(--border-color);">
+                                <th style="padding: 0.5rem;">Asset</th>
+                                <th style="padding: 0.5rem;">Status</th>
+                                <th style="padding: 0.5rem;">Confirmations</th>
+                                <th style="padding: 0.5rem;">Metadata CID</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for mint in recent_mint_requests %}
+                                <tr style="border-bottom: 1px solid var(--border-color);">
+                                    <td style="padding: 0.5rem;">{{ mint.unique_asset_name }}</td>
+                                    <td style="padding: 0.5rem;">{{ mint.status }}</td>
+                                    <td style="padding: 0.5rem;">{{ mint.confirmation_depth }}</td>
+                                    <td style="padding: 0.5rem; word-break: break-all;">{{ mint.metadata_ipfs_cid }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
         </div>
     </div>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const tokenSelect = document.getElementById('token_offered');
-            const quantityInput = document.getElementById('quantity');
+            const settlementSelect = document.getElementById('preferred_token');
+            const settlementAmountInput = document.getElementById('price');
+            const settlementUnitsData = document.getElementById('settlement-token-units-data');
+            const settlementTokenUnits = settlementUnitsData ? JSON.parse(settlementUnitsData.textContent) : {};
 
-            const updateQuantity = () => {
-                if (!tokenSelect || !quantityInput) return;
+            const applySettlementStep = () => {
+                if (!settlementSelect || !settlementAmountInput) return;
 
-                const selectedOption = tokenSelect.options[tokenSelect.selectedIndex];
-                const balance = selectedOption ? selectedOption.dataset.balance : '';
-                if (!balance) {
-                    quantityInput.value = '';
-                    return;
+                const selectedToken = settlementSelect.value || 'EVR';
+                const units = Number(settlementTokenUnits[selectedToken] ?? 8);
+                const normalizedUnits = Number.isFinite(units) ? Math.max(0, Math.min(8, units)) : 8;
+                const step = normalizedUnits === 0 ? '1' : `0.${'0'.repeat(Math.max(0, normalizedUnits - 1))}1`;
+
+                settlementAmountInput.step = step;
+                settlementAmountInput.min = step;
+
+                if (!settlementAmountInput.value) {
+                    settlementAmountInput.placeholder = normalizedUnits === 0 ? '0' : `0.${'0'.repeat(Math.max(0, normalizedUnits - 1))}1`;
                 }
-                quantityInput.value = balance;
             };
 
-            if (tokenSelect) {
-                tokenSelect.addEventListener('change', updateQuantity);
-                updateQuantity();
+            if (settlementSelect) {
+                settlementSelect.addEventListener('change', applySettlementStep);
+                applySettlementStep();
             }
+
+            const mintImageFileInput = document.getElementById('mint_image_file');
+            const mintExistingUploadSelect = document.getElementById('mint_existing_upload_id');
+
+            const syncMintImageInputs = () => {
+                if (!mintImageFileInput || !mintExistingUploadSelect) return;
+
+                const existingSelected = (mintExistingUploadSelect.value || '').trim() !== '';
+                const hasNewFile = mintImageFileInput.files && mintImageFileInput.files.length > 0;
+
+                mintImageFileInput.disabled = existingSelected;
+                if (existingSelected) {
+                    mintImageFileInput.value = '';
+                }
+
+                mintExistingUploadSelect.disabled = hasNewFile;
+            };
+
+            if (mintExistingUploadSelect) {
+                mintExistingUploadSelect.addEventListener('change', syncMintImageInputs);
+            }
+            if (mintImageFileInput) {
+                mintImageFileInput.addEventListener('change', syncMintImageInputs);
+            }
+            syncMintImageInputs();
         });
     </script>
 </body>

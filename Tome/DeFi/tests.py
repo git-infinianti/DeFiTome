@@ -1,12 +1,20 @@
 from datetime import timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase, Client
 from django.urls import reverse
 from django.utils import timezone
+from DeFi.cleanup import purge_expired_swap_offers
+from Wallet.models import TrackedAsset
+from Wallet.models import UserWallet, WalletAddress
+from API.models import AtomicSwapTransferMessage, DexMarketEventMessage, MessageChannelPolicy
+from DeFi.message_channels import record_atomic_swap_stage_event, record_market_stage_event
+from Listings.models import LimitOrder, TradingPair
 from .models import (
+    SwapFundingLock,
     LiquidityPool,
     LiquidityPosition,
     P2PSwapTransaction,
@@ -21,6 +29,7 @@ from .models import (
 
 class AtomicSwapAcceptanceTestCase(TestCase):
     def setUp(self):
+        from DeFi.cleanup import purge_expired_swap_offers
         self.seller = User.objects.create_user(username='seller', password='testpass123')
         self.buyer = User.objects.create_user(username='buyer', password='testpass123')
         self.swap_offer = SwapOffer.objects.create(
@@ -31,9 +40,160 @@ class AtomicSwapAcceptanceTestCase(TestCase):
             request_amount=Decimal('2'),
             expires_at=timezone.now() + timedelta(days=1),
         )
+        self.channel_policy = MessageChannelPolicy.objects.create(
+            channel_key='atomic_swap_transfer',
+            channel_name='SYSTEM~SWAPS',
+            network_mode='testnet',
+            version=1,
+            status='active',
+            owner_account=self.seller,
+            manager_account=self.seller,
+            allowed_stages=[
+                'offer_created',
+                'settlement_lock_created',
+                'settlement_build_failed',
+                'settlement_pending_reconciliation',
+                'settlement_broadcasted',
+                'swap_cancelled',
+                'swap_expired',
+            ],
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
+        )
+        self.record_event_patcher = patch('DeFi.views.record_atomic_swap_stage_event')
+        self.mock_view_record_event = self.record_event_patcher.start()
+        self.mock_view_record_event.return_value.status = 'broadcasted'
+        self.addCleanup(self.record_event_patcher.stop)
         self.client = Client()
 
+    @patch('DeFi.message_channels.create_and_send_transfer_with_message_transaction')
+    @patch('DeFi.message_channels.KuboAPIUploader.upload_bytes')
+    @patch('DeFi.message_channels.RPC.listassetbalancesbyaddress')
+    def test_stage_event_broadcasts_raw_message_and_records_txid(
+        self,
+        mock_balances,
+        mock_upload,
+        mock_raw_message,
+    ):
+        manager_wallet = UserWallet.objects.create(
+            user=self.seller,
+            entropy='manager-entropy',
+            passphrase='',
+        )
+        WalletAddress.objects.create(
+            wallet=manager_wallet,
+            network_mode='testnet',
+            address='EChannelAddress',
+            wif='L1ChannelWif',
+            account=0,
+            index=0,
+            is_change=False,
+        )
+        self.channel_policy.channel_name = 'ROOT~SWAPS'
+        self.channel_policy.save(update_fields=['channel_name', 'updated_at'])
+        mock_balances.return_value = {'ROOT~SWAPS': 1}
+        mock_upload.return_value = SimpleNamespace(cid='QmSwapPayload')
+        mock_raw_message.return_value = {'txid': 'raw-message-txid'}
+
+        message = record_atomic_swap_stage_event(
+            self.swap_offer,
+            stage='offer_created',
+            actor_username=self.seller.username,
+            actor_user=self.seller,
+        )
+
+        self.assertEqual(message.status, 'broadcasted')
+        self.assertEqual(message.broadcast_result, 'raw-message-txid')
+        self.assertEqual(message.payload_ipfs_cid, 'QmSwapPayload')
+        mock_raw_message.assert_called_once_with(
+            from_address='EChannelAddress',
+            to_address='EChannelAddress',
+            asset_name='ROOT~SWAPS',
+            asset_quantity=Decimal('1'),
+            message='QmSwapPayload',
+            expire_time=0,
+            wif_keys=['L1ChannelWif'],
+        )
+
+    @patch('DeFi.message_channels.create_and_send_transfer_with_message_transaction')
+    def test_explicit_dry_run_records_stage_without_broadcast(self, mock_raw_message):
+        message = record_atomic_swap_stage_event(
+            self.swap_offer,
+            stage='offer_created',
+            actor_username=self.seller.username,
+            actor_user=self.seller,
+            should_broadcast=False,
+        )
+
+        self.assertEqual(message.status, 'recorded')
+        self.assertTrue(AtomicSwapTransferMessage.objects.filter(pk=message.pk).exists())
+        mock_raw_message.assert_not_called()
+
+    @patch('DeFi.message_channels.create_and_send_transfer_with_message_transaction')
+    @patch('DeFi.message_channels.KuboAPIUploader.upload_bytes')
+    @patch('DeFi.message_channels.RPC.listassetbalancesbyaddress')
+    def test_market_order_event_broadcasts_to_eligible_console(
+        self,
+        mock_balances,
+        mock_upload,
+        mock_raw_message,
+    ):
+        manager_wallet = UserWallet.objects.create(
+            user=self.seller,
+            entropy='market-manager-entropy',
+            passphrase='',
+        )
+        WalletAddress.objects.create(
+            wallet=manager_wallet,
+            network_mode='testnet',
+            address='EMarketChannelAddress',
+            wif='L1MarketChannelWif',
+            account=0,
+            index=0,
+            is_change=False,
+        )
+        policy = MessageChannelPolicy.objects.create(
+            channel_key='dex_market_events',
+            channel_name='ROOT~MARKETS',
+            network_mode='testnet',
+            version=1,
+            status='active',
+            owner_account=self.seller,
+            manager_account=self.seller,
+            allowed_stages=['market_created', 'order_created'],
+            strict_rules={},
+        )
+        pair = TradingPair.objects.create(base_token='TOKEN', quote_token='EVR', network_mode='testnet')
+        order = LimitOrder.objects.create(
+            user=self.seller,
+            trading_pair=pair,
+            side='sell',
+            price=Decimal('2'),
+            quantity=Decimal('3'),
+        )
+        mock_balances.return_value = {'ROOT~MARKETS': 1}
+        mock_upload.return_value = SimpleNamespace(cid='QmMarketPayload')
+        mock_raw_message.return_value = {'txid': 'raw-market-message-txid'}
+
+        event = record_market_stage_event(pair, 'order_created', self.seller, order=order)[0]
+
+        self.assertEqual(event.policy, policy)
+        self.assertEqual(event.status, 'broadcasted')
+        self.assertEqual(event.payload['event_type'], 'dex_market_event')
+        self.assertEqual(event.payload['order']['id'], order.id)
+        self.assertTrue(DexMarketEventMessage.objects.filter(pk=event.pk).exists())
+        mock_raw_message.assert_called_once_with(
+            from_address='EMarketChannelAddress',
+            to_address='EMarketChannelAddress',
+            asset_name='ROOT~MARKETS',
+            asset_quantity=Decimal('1'),
+            message='QmMarketPayload',
+            expire_time=0,
+            wif_keys=['L1MarketChannelWif'],
+        )
+
     @patch('DeFi.views.sign_and_broadcast_raw_transaction', return_value='chain-transaction-id')
+    @patch('DeFi.views.uuid.uuid4', return_value='temp-fallback-id')
+    @patch('DeFi.views._get_available_token_amount', side_effect=[Decimal('1'), Decimal('2')])
     @patch('DeFi.views.create_raw_atomic_asset_evr_swap_transaction', return_value={'raw_tx': 'raw-swap'})
     @patch('DeFi.views._derive_user_wif_for_address', side_effect=['seller-wif', 'buyer-wif'])
     @patch('DeFi.views._get_user_primary_address', side_effect=['seller-address', 'buyer-address'])
@@ -42,6 +202,8 @@ class AtomicSwapAcceptanceTestCase(TestCase):
         mock_primary_address,
         mock_derive_wif,
         mock_create_raw_swap,
+        mock_available,
+        mock_uuid,
         mock_broadcast,
     ):
         self.client.login(username='buyer', password='testpass123')
@@ -52,7 +214,10 @@ class AtomicSwapAcceptanceTestCase(TestCase):
         self.swap_offer.refresh_from_db()
         self.assertEqual(self.swap_offer.status, 'completed')
         self.assertEqual(self.swap_offer.settlement_txid, 'chain-transaction-id')
+        self.assertEqual(self.swap_offer.settlement_temp_txid, 'temp-temp-fallback-id')
         self.assertEqual(P2PSwapTransaction.objects.get().tx_hash, 'chain-transaction-id')
+        self.assertEqual(SwapFundingLock.objects.filter(swap_offer=self.swap_offer, status='consumed').count(), 2)
+        self.assertEqual(SwapFundingLock.objects.filter(swap_offer=self.swap_offer, status='locked').count(), 0)
         self.assertFalse(SwapEscrow.objects.filter(swap_offer=self.swap_offer).exists())
         mock_create_raw_swap.assert_called_once_with(
             seller_address='seller-address',
@@ -67,6 +232,8 @@ class AtomicSwapAcceptanceTestCase(TestCase):
         )
 
     @patch('DeFi.views.sign_and_broadcast_raw_transaction', side_effect=RuntimeError('network timeout'))
+    @patch('DeFi.views.uuid.uuid4', return_value='temp-fallback-id')
+    @patch('DeFi.views._get_available_token_amount', side_effect=[Decimal('1'), Decimal('2')])
     @patch('DeFi.views.create_raw_atomic_asset_evr_swap_transaction', return_value={'raw_tx': 'raw-swap'})
     @patch('DeFi.views._derive_user_wif_for_address', side_effect=['seller-wif', 'buyer-wif'])
     @patch('DeFi.views._get_user_primary_address', side_effect=['seller-address', 'buyer-address'])
@@ -75,6 +242,8 @@ class AtomicSwapAcceptanceTestCase(TestCase):
         mock_primary_address,
         mock_derive_wif,
         mock_create_raw_swap,
+        mock_available,
+        mock_uuid,
         mock_broadcast,
     ):
         self.client.login(username='buyer', password='testpass123')
@@ -84,8 +253,153 @@ class AtomicSwapAcceptanceTestCase(TestCase):
         self.assertRedirects(response, reverse('available_swap_offers'))
         self.swap_offer.refresh_from_db()
         self.assertEqual(self.swap_offer.status, 'settling')
+        self.assertEqual(self.swap_offer.settlement_temp_txid, 'temp-temp-fallback-id')
         self.assertIn('reconciliation', self.swap_offer.settlement_error)
+        self.assertEqual(SwapFundingLock.objects.filter(swap_offer=self.swap_offer, status='locked').count(), 2)
         self.assertFalse(P2PSwapTransaction.objects.filter(swap_offer=self.swap_offer).exists())
+
+    @patch('DeFi.views._get_available_token_amount', side_effect=[Decimal('1'), Decimal('0')])
+    def test_unfunded_counterparty_is_blocked_before_settlement(self, mock_available):
+        self.client.login(username='buyer', password='testpass123')
+
+        response = self.client.post(reverse('accept_swap_offer', args=[self.swap_offer.id]))
+
+        self.assertRedirects(response, reverse('available_swap_offers'))
+        self.swap_offer.refresh_from_db()
+        self.assertEqual(self.swap_offer.status, 'pending')
+        self.assertEqual(SwapFundingLock.objects.filter(swap_offer=self.swap_offer).count(), 0)
+
+    @patch('DeFi.views.create_raw_atomic_asset_evr_swap_transaction')
+    @patch('DeFi.views._get_available_token_amount', side_effect=[Decimal('1'), Decimal('2')])
+    def test_channel_publish_failure_stops_settlement_before_raw_construction(
+        self,
+        _mock_available,
+        mock_create_raw_swap,
+    ):
+        self.mock_view_record_event.return_value.status = 'failed'
+        self.mock_view_record_event.return_value.error_message = 'Messaging channel is not postable.'
+        self.client.login(username='buyer', password='testpass123')
+
+        response = self.client.post(reverse('accept_swap_offer', args=[self.swap_offer.id]))
+
+        self.assertRedirects(response, reverse('available_swap_offers'))
+        self.swap_offer.refresh_from_db()
+        self.assertEqual(self.swap_offer.status, 'pending')
+        self.assertEqual(self.swap_offer.settlement_error, 'Messaging channel is not postable.')
+        self.assertFalse(SwapFundingLock.objects.filter(swap_offer=self.swap_offer).exists())
+        mock_create_raw_swap.assert_not_called()
+
+    def test_creator_manual_remove_releases_existing_funding_locks(self):
+        self.swap_offer.status = 'settling'
+        self.swap_offer.save(update_fields=['status', 'updated_at'])
+        SwapFundingLock.objects.create(
+            swap_offer=self.swap_offer,
+            user=self.seller,
+            token_symbol=self.swap_offer.offer_token,
+            amount=self.swap_offer.offer_amount,
+            status='locked',
+        )
+        SwapFundingLock.objects.create(
+            swap_offer=self.swap_offer,
+            user=self.buyer,
+            token_symbol='EVR',
+            amount=self.swap_offer.request_amount,
+            status='locked',
+        )
+
+        self.client.login(username='seller', password='testpass123')
+        response = self.client.post(reverse('cancel_swap_offer', args=[self.swap_offer.id]))
+
+        self.assertRedirects(response, reverse('my_swap_offers'))
+        self.swap_offer.refresh_from_db()
+        self.assertEqual(self.swap_offer.status, 'cancelled')
+        self.assertEqual(SwapFundingLock.objects.filter(swap_offer=self.swap_offer, status='locked').count(), 0)
+        self.assertEqual(SwapFundingLock.objects.filter(swap_offer=self.swap_offer, status='released').count(), 2)
+
+    def test_expired_swap_offer_is_purged_and_locks_released(self):
+        self.swap_offer.expires_at = timezone.now() - timedelta(minutes=1)
+        self.swap_offer.save(update_fields=['expires_at', 'updated_at'])
+        SwapFundingLock.objects.create(
+            swap_offer=self.swap_offer,
+            user=self.seller,
+            token_symbol=self.swap_offer.offer_token,
+            amount=self.swap_offer.offer_amount,
+            status='locked',
+        )
+
+        purged = purge_expired_swap_offers(network_mode='testnet')
+
+        self.assertEqual(purged, 1)
+        self.assertFalse(SwapOffer.objects.filter(id=self.swap_offer.id).exists())
+        self.assertFalse(SwapFundingLock.objects.filter(swap_offer_id=self.swap_offer.id).exists())
+
+    @patch('DeFi.views.sign_and_broadcast_raw_transaction', return_value='asset-asset-chain-txid')
+    @patch('DeFi.views.uuid.uuid4', return_value='temp-asset-asset')
+    @patch('DeFi.views._get_available_token_amount', side_effect=[Decimal('1'), Decimal('6')])
+    @patch('DeFi.views.create_raw_atomic_asset_asset_swap_transaction', return_value={'raw_tx': 'raw-asset-asset-swap'})
+    @patch('DeFi.views._derive_user_wif_for_address', side_effect=['seller-wif', 'buyer-wif'])
+    @patch('DeFi.views._get_user_primary_address', side_effect=['seller-address', 'buyer-address'])
+    def test_acceptance_supports_fungible_settlement_assets(
+        self,
+        _mock_primary_address,
+        _mock_derive_wif,
+        mock_create_asset_asset_swap,
+        _mock_available,
+        _mock_uuid,
+        _mock_broadcast,
+    ):
+        TrackedAsset.objects.create(
+            symbol='TOKEN/SUB',
+            network_mode='testnet',
+            asset_type=TrackedAsset.ASSET_TYPE_SUB,
+            units=2,
+        )
+        self.swap_offer.request_token = 'TOKEN/SUB'
+        self.swap_offer.request_amount = Decimal('5.123')
+        self.swap_offer.save(update_fields=['request_token', 'request_amount', 'updated_at'])
+
+        self.client.login(username='buyer', password='testpass123')
+        response = self.client.post(reverse('accept_swap_offer', args=[self.swap_offer.id]))
+
+        self.assertRedirects(response, reverse('my_swap_history'))
+        self.swap_offer.refresh_from_db()
+        self.assertEqual(self.swap_offer.status, 'completed')
+        mock_create_asset_asset_swap.assert_called_once_with(
+            seller_address='seller-address',
+            buyer_address='buyer-address',
+            seller_asset_name='COLLECTIBLE#1',
+            seller_asset_quantity=Decimal('1'),
+            buyer_asset_name='TOKEN/SUB',
+            buyer_asset_quantity=Decimal('5.12'),
+        )
+        self.assertTrue(
+            SwapFundingLock.objects.filter(
+                swap_offer=self.swap_offer,
+                token_symbol='TOKEN/SUB',
+                amount=Decimal('5.12'),
+                status='consumed',
+            ).exists()
+        )
+
+    @patch('DeFi.views._get_available_token_amount')
+    def test_non_unique_offer_is_rejected_before_balance_checks(self, mock_available):
+        TrackedAsset.objects.create(
+            symbol='TOKEN/SUB',
+            network_mode='testnet',
+            asset_type=TrackedAsset.ASSET_TYPE_SUB,
+            units=2,
+        )
+        self.swap_offer.offer_token = 'TOKEN/SUB'
+        self.swap_offer.save(update_fields=['offer_token', 'updated_at'])
+
+        self.client.login(username='buyer', password='testpass123')
+        response = self.client.post(reverse('accept_swap_offer', args=[self.swap_offer.id]))
+
+        self.assertRedirects(response, reverse('available_swap_offers'))
+        self.swap_offer.refresh_from_db()
+        self.assertEqual(self.swap_offer.status, 'pending')
+        self.assertFalse(SwapFundingLock.objects.filter(swap_offer=self.swap_offer).exists())
+        mock_available.assert_not_called()
 
 class FeeDistributionTestCase(TestCase):
     """Test cases for community liquidity fee distribution"""

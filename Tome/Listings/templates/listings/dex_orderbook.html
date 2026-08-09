@@ -1,3 +1,4 @@
+{% load static market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -299,6 +300,37 @@
             background: rgba(15, 23, 42, 0.5);
             border-radius: 4px;
         }
+
+        .pair-balances {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+        }
+
+        .pair-balance {
+            padding: 0.65rem;
+            background: rgba(15, 23, 42, 0.65);
+            border: 1px solid rgba(148, 163, 184, 0.16);
+            border-radius: 6px;
+            min-width: 0;
+        }
+
+        .pair-balance strong,
+        .pair-balance span {
+            display: block;
+            overflow-wrap: anywhere;
+        }
+
+        .pair-balance strong {
+            color: #e2e8f0;
+            font-size: 0.85rem;
+        }
+
+        .pair-balance span {
+            color: #94a3b8;
+            font-size: 0.75rem;
+            margin-top: 0.2rem;
+        }
         
         .side-selector {
             display: grid;
@@ -448,18 +480,18 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
+    <link rel="stylesheet" href="{% static 'css/market-dex.css' %}">
 </head>
-<body>
+<body class="theme-{{ user_theme }}">
     <header>
         <div class="header-left">
             <div class="logo">DeFi Tome</div>
             <nav>
-                <a href="{% url 'home' %}">Home</a>
-                <a href="{% url 'explorer' %}">Explorer</a>
-                <a href="{% url 'listings' %}">Atomic Swaps</a>
-                <a href="{% url 'dex_orderbook' %}">DEX</a>
-                <a href="{% url 'lending_home' %}">Lending</a>
-                <a href="{% url 'my_orders' %}">My Orders</a>
+                <a href="{% url 'markets' %}">Markets</a>
+                <a href="{% url 'dex_orderbook' %}">Trade</a>
+                <a href="{% url 'my_orders' %}">Orders</a>
+                <a href="{% url 'portfolio' %}">Portfolio</a>
             </nav>
         </div>
         <div class="header-right">
@@ -490,11 +522,41 @@
                 <div style="text-align: center; color: #94a3b8; font-size: 0.8rem; padding: 1rem;">
                     Sell Orders
                 </div>
+                {% for order in sell_orders %}
+                <div class="price-level" data-price="{{ order.price }}" onclick="fillPrice({{ order.price }})">
+                    <div class="price-sell">{{ order.price|floatformat:8 }}</div>
+                    <div class="price-amount">{{ order.remaining_quantity|floatformat:4 }}{% if order.user_id == request.user.id %} · Yours{% endif %}</div>
+                </div>
+                {% empty %}
+                <div class="price-level"><div class="price-amount">No open sell orders</div></div>
+                {% endfor %}
             </div>
             <div class="price-ladder" id="buy-orders">
                 <div style="text-align: center; color: #94a3b8; font-size: 0.8rem; padding: 1rem;">
                     Buy Orders
                 </div>
+                {% for order in buy_orders %}
+                <div class="price-level" data-price="{{ order.price }}" onclick="fillPrice({{ order.price }})">
+                    <div class="price-buy">{{ order.price|floatformat:8 }}</div>
+                    <div class="price-amount">{{ order.remaining_quantity|floatformat:4 }}{% if order.user_id == request.user.id %} · Yours{% endif %}</div>
+                </div>
+                {% empty %}
+                <div class="price-level"><div class="price-amount">No open buy orders</div></div>
+                {% endfor %}
+            </div>
+            <div class="panel-title" style="margin-top: 1rem;">Atomic Listings</div>
+            <div class="price-ladder">
+                {% for offer in atomic_listings %}
+                <a class="price-level" href="{% url 'listing_detail' offer.listing_id %}" style="text-decoration: none;">
+                    <div class="price-buy" title="{{ offer.offer_token|asset_tooltip }}">{{ offer.offer_token|market_symbol }}</div>
+                    <div class="price-amount">
+                        {{ offer.request_amount|floatformat:8 }} <span title="{{ offer.request_token|asset_tooltip }}">{{ offer.request_token|market_symbol }}</span>
+                        {% if offer.initiator_id == request.user.id %} · Yours{% endif %}
+                    </div>
+                </a>
+                {% empty %}
+                <div class="price-level"><div class="price-amount">No active atomic listings</div></div>
+                {% endfor %}
             </div>
         </div>
 
@@ -504,7 +566,8 @@
                 <div class="pair-info">
                     <div class="pair-name">
                         {% if selected_pair %}
-                            {{ selected_pair.base_token }}/{{ selected_pair.quote_token }}
+                            <span title="{{ selected_pair.base_token|asset_tooltip }}">{{ selected_pair.base_token|market_symbol }}</span>/<span title="{{ selected_pair.quote_token|asset_tooltip }}">{{ selected_pair.quote_token|market_symbol }}</span>
+                            <div class="pair-type">{{ selected_pair.get_instrument_type_display }}</div>
                         {% else %}
                             No Pair Selected
                         {% endif %}
@@ -524,6 +587,19 @@
 
         <!-- Right Panel: Trading Forms -->
         <div class="right-panel">
+            {% if selected_pair %}
+            <div class="pair-balances" aria-live="polite">
+                <div class="pair-balance">
+                    <strong><span id="base-live-balance">{{ base_live_balance }}</span> {{ selected_pair.base_token|market_symbol }}</strong>
+                    <span>Available: <span id="base-available-balance">{{ base_available_balance }}</span></span>
+                </div>
+                <div class="pair-balance">
+                    <strong><span id="quote-live-balance">{{ quote_live_balance }}</span> {{ selected_pair.quote_token|market_symbol }}</strong>
+                    <span>Available: <span id="quote-available-balance">{{ quote_available_balance }}</span></span>
+                </div>
+            </div>
+            <div id="balance-status" class="form-label">Loading live wallet balances...</div>
+            {% endif %}
             <div class="tab-buttons">
                 <button class="tab-btn active" onclick="switchTab('limit')">Limit</button>
                 <button class="tab-btn" onclick="switchTab('market')">Market</button>
@@ -543,18 +619,23 @@
                     <input type="hidden" name="side" id="order-side" value="buy">
 
                     <div class="form-group">
-                        <label class="form-label">Price ({% if selected_pair %}{{ selected_pair.quote_token }}{% else %}EVR{% endif %})</label>
-                        <input type="number" name="price" class="form-input" placeholder="0.00" step="0.00000001" required>
+                        <label class="form-label">Price ({% if selected_pair %}<span title="{{ selected_pair.quote_token|asset_tooltip }}">{{ selected_pair.quote_token|market_symbol }}</span>{% else %}EVR{% endif %})</label>
+                        <input type="number" name="price" class="form-input" placeholder="0.00" step="{{ quote_amount_step }}" required>
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label">Amount ({% if selected_pair %}{{ selected_pair.base_token }}{% else %}TOKEN{% endif %})</label>
-                        <input type="number" name="quantity" class="form-input" placeholder="0.00" step="1" required>
+                        <label class="form-label">Amount ({% if selected_pair %}<span title="{{ selected_pair.base_token|asset_tooltip }}">{{ selected_pair.base_token|market_symbol }}</span>{% else %}TOKEN{% endif %})</label>
+                        <input type="number" name="quantity" class="form-input" placeholder="0.00" step="{{ base_amount_step }}" required>
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label">Total ({% if selected_pair %}{{ selected_pair.quote_token }}{% else %}EVR{% endif %})</label>
+                        <label class="form-label">Total ({% if selected_pair %}<span title="{{ selected_pair.quote_token|asset_tooltip }}">{{ selected_pair.quote_token|market_symbol }}</span>{% else %}EVR{% endif %})</label>
                         <input type="number" class="form-input" id="total-cost" placeholder="0.00" readonly>
+                    </div>
+
+                    <div class="balance-info">
+                        <span id="limit-available-label">Available {{ selected_pair.quote_token|market_symbol }}</span>
+                        <span id="limit-available-value">{{ quote_available_balance }}</span>
                     </div>
 
                     <button type="submit" class="order-btn buy" id="limit-btn">Buy</button>
@@ -574,8 +655,13 @@
                     <input type="hidden" name="side" id="market-side" value="buy">
 
                     <div class="form-group">
-                        <label class="form-label">Amount ({% if selected_pair %}{{ selected_pair.base_token }}{% else %}TOKEN{% endif %})</label>
-                        <input type="number" name="quantity" class="form-input" placeholder="0.00" step="1" required>
+                        <label class="form-label">Amount ({% if selected_pair %}<span title="{{ selected_pair.base_token|asset_tooltip }}">{{ selected_pair.base_token|market_symbol }}</span>{% else %}TOKEN{% endif %})</label>
+                        <input type="number" name="quantity" class="form-input" placeholder="0.00" step="{{ base_amount_step }}" max="{{ market_buy_capacity }}" required>
+                    </div>
+
+                    <div class="balance-info">
+                        <span id="market-available-label">Buy capacity {{ selected_pair.base_token|market_symbol }}</span>
+                        <span id="market-available-value">{{ market_buy_capacity }}</span>
                     </div>
 
                     <button type="submit" class="order-btn buy" id="market-btn">Execute Market Order</button>
@@ -595,13 +681,19 @@
                     <input type="hidden" name="side" id="stop-side" value="sell">
 
                     <div class="form-group">
-                        <label class="form-label">Trigger Price ({% if selected_pair %}{{ selected_pair.quote_token }}{% else %}EVR{% endif %})</label>
-                        <input type="number" name="trigger_price" class="form-input" placeholder="0.00" step="0.00000001" required>
+                        <label class="form-label">Trigger Price ({% if selected_pair %}<span title="{{ selected_pair.quote_token|asset_tooltip }}">{{ selected_pair.quote_token|market_symbol }}</span>{% else %}EVR{% endif %})</label>
+                        <input type="number" name="trigger_price" class="form-input" placeholder="0.00" step="{{ quote_amount_step }}" required>
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label">Amount ({% if selected_pair %}{{ selected_pair.base_token }}{% else %}TOKEN{% endif %})</label>
-                        <input type="number" name="quantity" class="form-input" placeholder="0.00" step="1" required>
+                        <label class="form-label">Amount ({% if selected_pair %}<span title="{{ selected_pair.base_token|asset_tooltip }}">{{ selected_pair.base_token|market_symbol }}</span>{% else %}TOKEN{% endif %})</label>
+                        <input type="number" name="quantity" class="form-input" placeholder="0.00" step="{{ base_amount_step }}" required>
+                    </div>
+
+
+                    <div class="balance-info">
+                        <span id="stop-available-label">Available {{ selected_pair.base_token|market_symbol }}</span>
+                        <span id="stop-available-value">{{ base_available_balance }}</span>
                     </div>
 
                     <button type="submit" class="order-btn sell">Set Stop Loss</button>
@@ -639,6 +731,17 @@
 
     <script>
         const selectedPairId = "{% if selected_pair %}{{ selected_pair.id }}{% else %}none{% endif %}";
+        const balanceEndpoint = "{% if selected_pair %}{% url 'market_pair_balances' selected_pair.id %}{% endif %}";
+        const balanceState = {
+            baseToken: "{% if selected_pair %}{{ selected_pair.base_token|market_symbol|escapejs }}{% endif %}",
+            quoteToken: "{% if selected_pair %}{{ selected_pair.quote_token|market_symbol|escapejs }}{% endif %}",
+            baseAvailable: "{{ base_available_balance|escapejs }}",
+            quoteAvailable: "{{ quote_available_balance|escapejs }}",
+            marketBuyCapacity: "{{ market_buy_capacity|escapejs }}",
+            baseStep: "{{ base_amount_step|escapejs }}",
+            quoteStep: "{{ quote_amount_step|escapejs }}",
+        };
+        let balanceRefreshInFlight = false;
         
         // Initialize chart
         const chartContainer = document.getElementById('chart-container');
@@ -683,33 +786,6 @@
 
         candleSeries.setData(sampleData);
         chart.timeScale().fitContent();
-
-        // Populate order book
-        function populateOrderBook() {
-            const sellOrders = document.getElementById('sell-orders');
-            const buyOrders = document.getElementById('buy-orders');
-            
-            const sellHtml = `
-                {% for order in sell_orders %}
-                <div class="price-level" data-price="{{ order.price }}" onclick="fillPrice({{ order.price }})">
-                    <div class="price-sell">{{ order.price|floatformat:8 }}</div>
-                    <div class="price-amount">{{ order.remaining_quantity|floatformat:4 }}</div>
-                </div>
-                {% endfor %}
-            `;
-            
-            const buyHtml = `
-                {% for order in buy_orders %}
-                <div class="price-level" data-price="{{ order.price }}" onclick="fillPrice({{ order.price }})">
-                    <div class="price-buy">{{ order.price|floatformat:8 }}</div>
-                    <div class="price-amount">{{ order.remaining_quantity|floatformat:4 }}</div>
-                </div>
-                {% endfor %}
-            `;
-            
-            if (sellHtml.trim()) sellOrders.innerHTML = sellHtml;
-            if (buyHtml.trim()) buyOrders.innerHTML = buyHtml;
-        }
 
         // Fill price from order book click
         function fillPrice(price) {
@@ -757,29 +833,123 @@
                 btn.classList.add('sell');
                 btn.textContent = 'Sell';
             }
+            updateLimitAvailability();
         }
 
         function setMarketSide(side, clickedBtn) {
             document.getElementById('market-side').value = side;
             document.querySelectorAll('#market .side-btn').forEach(el => el.classList.remove('active'));
             if (clickedBtn) clickedBtn.classList.add('active');
+            const btn = document.getElementById('market-btn');
+            btn.classList.toggle('buy', side === 'buy');
+            btn.classList.toggle('sell', side === 'sell');
+            btn.textContent = side === 'buy' ? 'Execute Market Buy' : 'Execute Market Sell';
+            updateMarketAvailability();
         }
 
         function setStopSide(side, clickedBtn) {
             document.getElementById('stop-side').value = side;
             document.querySelectorAll('#stop .side-btn').forEach(el => el.classList.remove('active'));
             if (clickedBtn) clickedBtn.classList.add('active');
+            updateStopAvailability();
+        }
+
+        function setText(id, value) {
+            const element = document.getElementById(id);
+            if (element) element.textContent = value;
+        }
+
+        function floorToStep(value, step) {
+            const numericValue = Number(value);
+            const numericStep = Number(step);
+            if (!Number.isFinite(numericValue) || !Number.isFinite(numericStep) || numericStep <= 0) return '0';
+            const decimals = Math.max(0, (String(step).split('.')[1] || '').length);
+            return (Math.floor((numericValue + Number.EPSILON) / numericStep) * numericStep).toFixed(decimals);
+        }
+
+        function updateLimitAvailability() {
+            const side = document.getElementById('order-side')?.value || 'buy';
+            const quantityInput = document.querySelector('#limit-form input[name="quantity"]');
+            if (side === 'sell') {
+                setText('limit-available-label', `Available ${balanceState.baseToken}`);
+                setText('limit-available-value', balanceState.baseAvailable);
+                if (quantityInput) quantityInput.max = balanceState.baseAvailable;
+                return;
+            }
+
+            setText('limit-available-label', `Available ${balanceState.quoteToken}`);
+            setText('limit-available-value', balanceState.quoteAvailable);
+            const price = document.querySelector('#limit-form input[name="price"]')?.value;
+            if (quantityInput) {
+                quantityInput.max = Number(price) > 0
+                    ? floorToStep(Number(balanceState.quoteAvailable) / Number(price), balanceState.baseStep)
+                    : '';
+            }
+        }
+
+        function updateMarketAvailability() {
+            const side = document.getElementById('market-side')?.value || 'buy';
+            const quantityInput = document.querySelector('#market-form input[name="quantity"]');
+            const value = side === 'buy' ? balanceState.marketBuyCapacity : balanceState.baseAvailable;
+            setText('market-available-label', side === 'buy' ? `Buy capacity ${balanceState.baseToken}` : `Available ${balanceState.baseToken}`);
+            setText('market-available-value', value);
+            if (quantityInput) quantityInput.max = value;
+        }
+
+        function updateStopAvailability() {
+            const side = document.getElementById('stop-side')?.value || 'sell';
+            const value = side === 'buy' ? balanceState.quoteAvailable : balanceState.baseAvailable;
+            const token = side === 'buy' ? balanceState.quoteToken : balanceState.baseToken;
+            setText('stop-available-label', `Available ${token}`);
+            setText('stop-available-value', value);
+        }
+
+        function applyBalanceData(data) {
+            balanceState.baseAvailable = data.base_available_balance;
+            balanceState.quoteAvailable = data.quote_available_balance;
+            balanceState.marketBuyCapacity = data.market_buy_capacity;
+            balanceState.baseStep = data.base_step;
+            balanceState.quoteStep = data.quote_step;
+            setText('base-live-balance', data.base_live_balance);
+            setText('quote-live-balance', data.quote_live_balance);
+            setText('base-available-balance', data.base_available_balance);
+            setText('quote-available-balance', data.quote_available_balance);
+            document.querySelectorAll('input[name="quantity"]').forEach(input => { input.step = data.base_step; });
+            document.querySelectorAll('input[name="price"], input[name="trigger_price"]').forEach(input => { input.step = data.quote_step; });
+            updateLimitAvailability();
+            updateMarketAvailability();
+            updateStopAvailability();
+            setText('balance-status', data.balances_are_live ? `Live wallet balances · ${new Date().toLocaleTimeString()}` : 'Balance refresh unavailable');
+        }
+
+        async function refreshPairBalances() {
+            if (!balanceEndpoint || balanceRefreshInFlight) return;
+            balanceRefreshInFlight = true;
+            try {
+                const response = await fetch(balanceEndpoint, { cache: 'no-store', headers: { 'Accept': 'application/json' } });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                applyBalanceData(await response.json());
+            } catch (error) {
+                setText('balance-status', 'Balance refresh unavailable');
+            } finally {
+                balanceRefreshInFlight = false;
+            }
         }
 
         // Calculate total on input change
-        document.getElementById('limit-form')?.addEventListener('change', function() {
+        document.getElementById('limit-form')?.addEventListener('input', function() {
             const price = parseFloat(this.querySelector('input[name="price"]').value) || 0;
             const quantity = parseFloat(this.querySelector('input[name="quantity"]').value) || 0;
             document.getElementById('total-cost').value = (price * quantity).toFixed(8);
+            updateLimitAvailability();
         });
 
-        // Initialize
-        populateOrderBook();
+        updateLimitAvailability();
+        updateMarketAvailability();
+        updateStopAvailability();
+        refreshPairBalances();
+        window.setInterval(refreshPairBalances, 15000);
+
     </script>
 </body>
 </html>

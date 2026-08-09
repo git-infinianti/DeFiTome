@@ -1,3 +1,4 @@
+{% load static market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -349,13 +350,50 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="{% static 'css/market-dex.css' %}">
     <script>
-        function updatePairPreview() {
-            const baseToken = document.getElementById('base_token').value.toUpperCase() || 'BASE';
-            const quoteToken = document.getElementById('quote_token').value.toUpperCase() || 'QUOTE';
-            document.getElementById('pair-display').innerHTML = baseToken + '<span>/</span>' + quoteToken;
+        function synchronizePairOptions(changedSide) {
+            const baseSelect = document.getElementById('base_token');
+            const quoteSelect = document.getElementById('quote_token');
+            if (!baseSelect || !quoteSelect) {
+                return;
+            }
+
+            if (baseSelect.value && baseSelect.value === quoteSelect.value) {
+                if (changedSide === 'quote') {
+                    baseSelect.value = '';
+                } else {
+                    quoteSelect.value = '';
+                }
+            }
+
+            for (const option of baseSelect.options) {
+                option.hidden = Boolean(option.value && option.value === quoteSelect.value);
+                option.disabled = option.hidden;
+            }
+            for (const option of quoteSelect.options) {
+                option.hidden = Boolean(option.value && option.value === baseSelect.value);
+                option.disabled = option.hidden;
+            }
+
+            updatePairPreview();
         }
+
+        function updatePairPreview() {
+            const baseSelect = document.getElementById('base_token');
+            const quoteSelect = document.getElementById('quote_token');
+            const baseOption = baseSelect?.selectedOptions[0];
+            const quoteOption = quoteSelect?.selectedOptions[0];
+            const baseToken = baseOption?.dataset.display || 'BASE';
+            const quoteToken = quoteOption?.dataset.display || 'QUOTE';
+            const preview = document.getElementById('pair-display');
+            preview.innerHTML = baseToken + '<span>/</span>' + quoteToken;
+            preview.title = [baseOption?.dataset.tooltip, quoteOption?.dataset.tooltip].filter(Boolean).join(' / ');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => synchronizePairOptions());
     </script>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -365,15 +403,10 @@
             </div>
             <div class="header-right">
                 <nav>
-                    <a href="{% url 'home' %}">Home</a>
-                    <a href="{% url 'explorer' %}">Explorer</a>
-                    <a href="{% url 'listings' %}">Atomic Swaps</a>
                     <a href="{% url 'markets' %}">Markets</a>
-                    <a href="{% url 'dex_orderbook' %}">DEX</a>
-                    <a href="{% url 'lending_home' %}">Lending</a>
+                    <a href="{% url 'dex_orderbook' %}">Trade</a>
+                    <a href="{% url 'my_orders' %}">Orders</a>
                     <a href="{% url 'portfolio' %}">Portfolio</a>
-                    <a href="{% url 'api_docs' %}">Docs</a>
-                    <a href="{% url 'settings' %}">Settings</a>
                 </nav>
                 {% if has_wallet and user_wallet_balance is not None %}
                 <div class="wallet-balance-display">
@@ -386,7 +419,7 @@
         
         <section class="page-title">
             <h1>Create New Market</h1>
-            <p>Create a trading pair for users to trade on the {{ current_network|title }} DEX</p>
+            <p>List a native asset for continuous spot trading on {{ current_network|title }}</p>
         </section>
         
         {% if messages %}
@@ -400,13 +433,14 @@
         {% endif %}
         
         <div class="info-box">
-            <h3>📌 Market Creation Guidelines</h3>
+            <h3>Market Instrument</h3>
             <ul>
                 <li>Base token is the asset being traded (e.g., BTC in BTC/USDT)</li>
                 <li>Quote token is the pricing currency (e.g., USDT in BTC/USDT)</li>
                 <li>Token symbols must be alphanumeric (2-10 characters)</li>
                 <li>Both tokens must be different</li>
                 <li>Base token cannot be EVR</li>
+                <li>Restricted assets are identified as security-capable instruments</li>
             </ul>
         </div>
         
@@ -424,7 +458,7 @@
                 <div class="label">Market Pair Preview</div>
                 <div class="pair-display" id="pair-display">
                     {% if base_token and quote_token %}
-                    {{ base_token }}<span>/</span>{{ quote_token }}
+                    <span title="{{ base_token|asset_tooltip }}">{{ base_token|market_symbol }}</span>/<span title="{{ quote_token|asset_tooltip }}">{{ quote_token|market_symbol }}</span>
                     {% else %}
                     BASE<span>/</span>QUOTE
                     {% endif %}
@@ -437,13 +471,13 @@
                 <select 
                     id="base_token" 
                     name="base_token" 
-                    oninput="updatePairPreview()"
+                    onchange="synchronizePairOptions('base')"
                     required
                 >
                     <option value="">-- Select a base token from your assets --</option>
                     {% for token in available_base_tokens %}
-                    <option value="{{ token }}" {% if base_token == token %}selected{% endif %}>
-                        {{ token }}
+                    <option value="{{ token }}" data-display="{{ token|market_symbol }}" data-tooltip="{{ token|asset_tooltip }}" title="{{ token|asset_tooltip }}" {% if base_token == token %}selected{% endif %}>
+                        {{ token|market_symbol }} · {{ token|asset_type_label }}
                     </option>
                     {% endfor %}
                 </select>
@@ -468,13 +502,13 @@
                 <select 
                     id="quote_token" 
                     name="quote_token" 
-                    oninput="updatePairPreview()"
+                    onchange="synchronizePairOptions('quote')"
                     required
                 >
                     <option value="">-- Select a quote token --</option>
                     {% for token in available_quote_tokens %}
-                    <option value="{{ token }}" {% if quote_token == token or quote_token == '' and token == 'EVR' %}selected{% endif %}>
-                        {{ token }}
+                    <option value="{{ token }}" data-display="{{ token|market_symbol }}" data-tooltip="{{ token|asset_tooltip }}" title="{{ token|asset_tooltip }}" {% if quote_token == token or quote_token == '' and token == 'EVR' %}selected{% endif %}>
+                        {{ token|market_symbol }} · {{ token|asset_type_label }}
                     </option>
                     {% endfor %}
                 </select>

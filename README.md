@@ -1,261 +1,270 @@
 # DeFi Tome
 
-> The all-in-one, peer-to-peer DeFi protocol suite built natively on the Evrmore network.
+DeFi Tome is a testnet-stage Django application for wallet operations, native
+asset management, peer-to-peer trading, and chain exploration on EVRMore. The
+project is focused on native EVR and EVRMore assets: no wrapped assets, bridges,
+or off-chain custody are required for its settlement workflows.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
-[![Django](https://img.shields.io/badge/Django-6.0+-darkgreen.svg)](https://www.djangoproject.com/)
-[![Status](https://img.shields.io/badge/Status-Testnet%20Coming-orange.svg)](#testnet)
+> **Project status:** Active testnet alpha. The wallet, asset, market, and
+> atomic-swap workflows are implemented and covered by automated tests, but the
+> application has not completed an independent security audit and is not ready
+> for production custody or mainnet settlement.
 
-## 🎯 Mission
+## Product Direction
 
-DeFi Tome unlocks Evrmore's untapped liquidity and native on-chain capabilities by delivering a **complete, trustless DeFi ecosystem**—from peer-to-peer trading and lending to yield farming and cross-chain interoperability—without intermediaries or compromises.
+DeFi Tome is evolving into an operational console for EVRMore rather than a
+collection of disconnected protocol demos. The near-term priorities are:
 
-We're building **Solidity for Evrmore**: a purpose-built smart contract language that leverages Evrmore's unique architecture to deliver unmatched performance, security, and composability.
+1. Harden native raw-transaction workflows on testnet.
+2. Make settlement, recovery, and chain reconciliation observable and safe.
+3. Complete a security review and controlled testnet release.
+4. Promote proven workflows to mainnet incrementally.
+5. Expand lending, oracle, and liquidity features only after the trading and
+   custody foundations are mature.
 
----
+## Implemented Features
 
-## ⚡ Why DeFi Tome?
+### Wallet and Authentication
 
-| Feature | Benefit |
-|---------|---------|
-| **100% On-Chain** | All operations execute directly on Evrmore—no wrapped tokens, no bridges, no trusted custodians |
-| **Native P2P** | True peer-to-peer interactions eliminate protocol rent-seeking |
-| **Evrmore-Optimized** | Custom Solidity variant exploits Evrmore's architecture for lower fees & higher throughput |
-| **Composable** | Modular design enables seamless protocol stacking (e.g., swap → lend → yield farm in one tx) |
-| **Community-Owned** | Open-source, decentralized governance ready |
+- Django registration, login, email verification, and session management.
+- EVRMore address authentication using signed, one-time challenges.
+- HD wallet creation, derived address profiles, backup, QR receive, and
+  transaction history views.
+- Mainnet/testnet selection and public/local RPC endpoint routing.
+- Stored balance snapshots so normal page rendering does not depend on a live
+  node response.
+- Optional SafeTrade credential storage and member-profile synchronization.
 
----
+### Native EVRMore Transactions and Assets
 
-## 🏗️ Architecture
+- Manual raw transaction construction and signing for EVR transfers, asset
+  transfers, issuance operations, and atomic settlement.
+- `testmempoolaccept` preflight before transaction broadcast.
+- EVR, asset, and authorization-token change returned to the source address.
+- Mempool-aware UTXO selection and relay-fee-floor enforcement.
+- Tracked main, sub, unique, messaging, qualifier, and restricted asset roles.
+- Admin asset-creation workspace with dry-run/preflight support.
+- IPFS-backed asset metadata and unique-asset mint requests.
 
-### Core Stack
-- **Backend**: Django 6.0 (Python) + PostgreSQL/SQLite
-- **Frontend**: HTML5, JavaScript (vanilla + modern tooling)
-- **Blockchain Integration**: Evrmore RPC, native cryptographic libraries
-- **Decentralized Storage**: IPFS for protocol data, smart contract ABIs, governance records
-- **Content Delivery**: Cloudflare for global performance & DDoS protection
-- **Infrastructure**: AWS (file uploads, user data backup)
+### Atomic Swaps and Markets
 
-### Domain-Specific Modules
+- P2P atomic-swap offers containing exactly one native unique asset.
+- Settlement in EVR or a tracked fungible main/sub-asset.
+- Single raw atomic settlement transactions for asset-to-EVR and
+  asset-to-asset swaps.
+- Funding locks, expiry cleanup, cancellation, reconciliation state, and
+  network isolation.
+- Fungible market registry and order book with limit, market, and stop-loss
+  order workflows.
+- Canonical routes at `/markets/` and `/defi/p2p/available/`, with redirects
+  retained for older listing URLs.
 
+### Messaging Channels and Metadata Governance
+
+- Canonical `ROOT~CHANNEL` assets for governed console workflows.
+- Raw messaging-channel issuance and raw transfer-with-message lifecycle events.
+- Schema-versioned IPFS metadata bound to the asset's on-chain CID.
+- Chain metadata verification, policy revisions, deprecation, subscription,
+  and scan/export administration.
+- Atomic swaps fail closed when no active, verified channel covers the full
+  lifecycle or when a required event cannot be published.
+
+### Explorer, Media, API, and Interface
+
+- Block, transaction, asset, output, and address-oriented explorer views.
+- Kubo/IPFS upload, preview, edit, and deletion workflows.
+- RIP-0010 address metadata tags and verification.
+- API key management and a restricted RPC procedure catalog.
+- API surfaces for chain reads, assets, contracts, and message-channel
+  administration.
+- Responsive operational dashboard and shared desktop/mobile visual system.
+
+## Experimental Surfaces
+
+The repository contains models, views, and tests for liquidity pools, price
+feeds, lending positions, fixed-rate bonds, variable savings, fee distribution,
+and contract records. These surfaces are research and testnet work in progress;
+they are not production protocols and should not be treated as audited financial
+infrastructure.
+
+## Architecture
+
+```text
+DeFiTome/
+├── Tome/
+│   ├── Tome/       # Project settings, canonical URLs, routed RPC client
+│   ├── User/       # Accounts, email verification, wallet authentication
+│   ├── Wallet/     # HD wallets, UTXOs, raw transactions, asset operations
+│   ├── Listings/   # Market registry, order book, listings, NFT records
+│   ├── DeFi/       # Atomic swaps and experimental protocol modules
+│   ├── Explorer/   # Chain explorer views and normalized chain data
+│   ├── Media/      # IPFS files and RIP-0010 address metadata
+│   ├── API/        # API keys, RPC catalog, messaging channel policies
+│   ├── Settings/   # User, network, RPC, and appearance preferences
+│   └── static/     # Shared operational interface theme
+├── scripts/        # Local-node diagnostics and raw transaction probes
+└── .github/
+    ├── docs/       # Maintainer and protocol implementation references
+    └── skills/     # EVRMore engineering workflow and validation guidance
 ```
-Tome/
-├── User/          # Authentication, profiles, wallet onboarding
-├── Wallet/        # HD wallet management, key derivation, custody solutions
-├── DeFi/          # Core protocol logic (swaps, lending, yield, governance)
-├── API/           # RESTful API endpoints, WebSocket connections, external integrations
-├── Explorer/      # Transaction history, analytics, block explorer
-├── Marketplace/   # Peer-to-peer trading UI, order books, settlement
-└── Settings/      # User preferences, app configuration, protocol parameters
-```
 
----
+### Technology
 
-## 🚀 Feature Set (Alpha → Production)
+- Python and Django 6.0
+- SQLite for local development through the Django ORM
+- `evrmore-rpc` with routed public and local-node backends
+- `coincurve`, `ecdsa`, `hdwallet`, and related cryptographic libraries
+- Kubo/IPFS for metadata and media
+- Server-rendered Django templates with vanilla JavaScript and shared CSS
 
-### Trading & Exchange
-- **Peer-to-Peer Swaps** — Direct token trades without AMM fees
-- **Liquidity Pools** — Community-provided liquidity with fair fee distribution
-- **Order Book DEX** — Limit orders, market orders, stop-loss execution
-- **Price Feeds** — Decentralized oracle network (testnet v1)
-
-### Lending & Borrowing
-- **Collateralized Lending** — Earn interest on deposits, borrow against collateral
-- **Liquidation Engine** — Real-time price monitoring and automated liquidations
-- **Variable/Fixed Rates** — Dynamic interest curves or fixed-term instruments
-
-### Yield & Farming
-- **Yield Aggregation** — Route liquidity to highest-yield strategies
-- **Governance Rewards** — Incentivize participation in protocol decisions
-- **Strategy Vaults** — Automated rebalancing and compounding
-
-### Cross-Protocol Composability
-- **Flash Loans** — Uncollateralized, single-transaction borrowing
-- **Protocol Aggregation** — Route transactions through optimal paths
-- **Governance** — DAO-controlled parameter updates
-
----
-
-## 🛠️ Quick Start
+## Local Development
 
 ### Prerequisites
-- Python 3.11+
-- Node.js 18+ (for frontend tooling)
-- Evrmore node (testnet or mainnet)
-- PostgreSQL 13+ (or SQLite for local dev)
 
-### Installation
+- Python 3.12 or newer
+- A Python virtual environment
+- Optional: a local EVRMore node for signing, broadcasting, wallet-local RPC,
+  and complete testnet validation
+- Optional: a local Kubo daemon for IPFS uploads and metadata retrieval
+
+The application can use the configured public RPC endpoints for supported read
+operations. Settlement-critical and node-wallet operations require a local node.
+
+### Setup
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/defitome.git
-cd defitome
+git clone <repository-url>
+cd DeFiTome
 
-# Set up Python environment
 python3 -m venv .venv
 source .venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
-cp .env.example .env
-# Edit .env with your Evrmore RPC endpoint, SECRET_KEY, etc.
-
-# Initialize database
 cd Tome
 python manage.py migrate
-
-# Create superuser (admin access)
 python manage.py createsuperuser
-
-# Start development server
 python manage.py runserver
-
-# Frontend build (if applicable)
-npm install && npm run dev
 ```
 
-Visit `http://localhost:8000` to access the platform.
+Open `http://127.0.0.1:8000/`.
 
-### Evrmore Wallet Sign-In
-
-Evrmore wallet sign-in is available alongside username/password authentication.
-An authenticated user links an external Evrmore P2PKH address from **Settings >
-Security**, proves ownership by signing a one-time challenge, and can then use
-that wallet to start a normal Django session from `/user/wallet-login/`.
-
-Set these environment variables in production:
+No Node.js build step is required. Configuration is loaded from environment
+variables or a local `.env` file at the repository root. Useful settings include:
 
 ```ini
-EVRMORE_AUTH_DATABASE_PATH=/var/lib/defitome/evrmore_auth.sqlite3
-EVRMORE_AUTH_JWT_SECRET=use-a-separate-random-secret-with-at-least-32-bytes
+DJANGO_SECRET_KEY=replace-this-for-any-shared-environment
+DJANGO_DEBUG=True
+DEFAULT_EVRMORE_NETWORK=testnet
+DEFAULT_EVRMORE_RPC_ENDPOINT_MODE=public
+
+# Local testnet node, required for full transaction operations
+RPC_TESTNET_HOST=127.0.0.1
+RPC_TESTNET_PORT=18819
+RPC_TESTNET_USER=your-rpc-user
+RPC_TESTNET_PASSWORD=your-rpc-password
+
+# Optional local IPFS
+IPFS_STORAGE_API_URL=http://localhost:5001/api/v0/
+IPFS_GATEWAY_API_URL=http://localhost:8080/ipfs/
+
+# Use a separate secret in shared or production-like environments
+EVRMORE_AUTH_JWT_SECRET=replace-with-a-random-secret-of-at-least-32-bytes
 EVRMORE_AUTH_CHALLENGE_EXPIRY_MINUTES=10
 ```
 
-The package's challenge state is stored in `EVRMORE_AUTH_DATABASE_PATH`. Django
-remains the browser session authority; the package-issued JWT is invalidated
-immediately after signature verification and is never returned to the browser.
+Network-specific RPC URL, scheme, path, datadir, and timeout settings are also
+available in `Tome/Tome/settings.py`.
 
-### Testnet Access
+## Validation
 
-**Coming Soon:** Public testnet endpoint and faucet.
-
-For early access to testnet:
-1. [Join Discord](https://discord.gg/defitome)
-2. Request testnet funds in `#faucet` channel
-3. Start building
-
----
-
-## 📚 Documentation
-
-- **[API Reference](./docs/api/)** — Complete REST/WebSocket API
-- **[Smart Contract Guide](./docs/contracts/)** — Solidity for Evrmore syntax & examples
-- **[Deployment Guide](./docs/deployment/)** — Self-host or use our infrastructure
-- **[Architecture Deep Dive](./docs/architecture/)** — System design & security model
-- **[Contributing Guidelines](./CONTRIBUTING.md)** — Development workflow
-
----
-
-## 🔐 Security & Audits
-
-- **Code Review**: All contract logic undergoes rigorous peer review before mainnet deployment
-- **Bug Bounty**: [Participate in our bug bounty program](https://security.defitome.io)
-- **Audit Status**: Preparing for independent security audits (Q2 2026)
-- **Security Policy**: See [SECURITY.md](./SECURITY.md) for responsible disclosure
-
-⚠️ **Disclaimer**: DeFi Tome is early-stage software. Use at your own risk. We are not responsible for loss of funds due to smart contract vulnerabilities or user error.
-
----
-
-## 🗺️ Roadmap
-
-### Phase 1: Foundation (Q1 2026)
-- [x] Core Django architecture & wallet integration
-- [ ] Testnet launch with basic swaps & liquidity pools
-- [ ] Solidity for Evrmore MVP (stateless contracts)
-- [ ] Web UI for trading & asset management
-
-### Phase 2: Deepen DeFi (Q2 2026)
-- [ ] Lending protocol with variable interest rates
-- [ ] Flash loan support
-- [ ] Advanced order types (limit, stop-loss, DCA)
-- [ ] Governance token & DAO framework
-
-### Phase 3: Scale & Interop (Q3 2026)
-- [ ] Mainnet launch
-- [ ] Cross-chain liquidity bridges (Ethereum, Bitcoin)
-- [ ] Yield aggregation strategies
-- [ ] Advanced analytics dashboard
-
-### Phase 4: Ecosystem (Q4 2026+)
-- [ ] Third-party developer SDK
-- [ ] Protocol-level insurance mechanisms
-- [ ] Institutional custody solutions
-- [ ] L2 scalability enhancements
-
----
-
-## 🤝 Contributing
-
-We welcome contributions from developers, auditors, and community members. 
-
-1. **Fork** the repository
-2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
-3. **Commit changes** (`git commit -m 'Add amazing feature'`)
-4. **Push to branch** (`git push origin feature/amazing-feature`)
-5. **Open a Pull Request**
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guidelines, code standards, and testing requirements.
-
-### Development Setup
+Run the full Django suite from the repository root:
 
 ```bash
-# Install dev dependencies
-pip install -r requirements-dev.txt
-
-# Run tests
-python manage.py test
-
-# Run linter
-flake8 Tome/
-
-# Format code
-black Tome/
+.venv/bin/python Tome/manage.py test
+.venv/bin/python Tome/manage.py check
+python scripts/verify_rpc_cheatsheet.py
 ```
 
----
+Local-node transaction probes live in `scripts/`. They can sign or broadcast
+transactions; inspect each script and its configured network before running it.
 
-## 📞 Community & Support
+## Roadmap and Milestones
 
-- **Discord**: [Join our community](https://discord.gg/defitome)
-- **Twitter/X**: [@DeFiTome](https://twitter.com/defitome)
-- **GitHub Issues**: [Report bugs or suggest features](https://github.com/your-org/defitome/issues)
-- **Email**: hello@defitome.io
+Roadmap status reflects repository implementation, not production readiness.
 
----
+### Milestone 1: Application Foundation - Reached
 
-## 📄 License
+- [x] Multi-app Django architecture and database migrations
+- [x] Account, email, and EVRMore wallet authentication
+- [x] Wallet creation, address management, balances, and transaction history
+- [x] Mainnet/testnet and public/local RPC routing
+- [x] Responsive dashboard, canonical URLs, and shared navigation system
 
-DeFi Tome is licensed under the [MIT License](./LICENSE).
+### Milestone 2: Native Asset Infrastructure - Reached
 
----
+- [x] Raw EVR and native asset transfer builders
+- [x] Source-preserving EVR, asset, and authorization change
+- [x] Mempool preflight and fee-floor validation
+- [x] Asset issuance workspace and tracked asset inventory
+- [x] IPFS media, asset metadata, and RIP-0010 address tags
+- [x] Verified messaging-channel policy lifecycle
 
-## 📖 Citation
+### Milestone 3: Testnet Trading Alpha - Reached, Hardening Continues
 
-If you use DeFi Tome in research or production, please cite:
+- [x] Unique-asset atomic offers with EVR settlement
+- [x] Unique-asset atomic offers with fungible asset settlement
+- [x] Funding locks, expiry, cancellation, and reconciliation records
+- [x] Fungible market registry and order-book workflows
+- [x] Limit, market, and stop-loss order paths
+- [x] Messaging-channel publication gates for governed swap operations
+- [ ] Complete repeatable end-to-end local-node testnet scenarios
+- [ ] Add broader failure-injection and recovery coverage
+- [ ] Publish operator runbooks and testnet release criteria
 
-```bibtex
-@software{defitome2026,
-  title={DeFi Tome: All-in-One Peer-to-Peer DeFi Protocol Suite for Evrmore},
-  author={DeFi Tome Team},
-  year={2026},
-  url={https://github.com/your-org/defitome}
-}
-```
+### Milestone 4: Security and Controlled Mainnet - Planned
 
----
+- [ ] Threat model and security review of key custody and settlement
+- [ ] Independent audit of transaction and authorization paths
+- [ ] Production secrets, database, backup, monitoring, and alerting plan
+- [ ] Limited-value mainnet pilot with emergency pause procedures
+- [ ] General mainnet availability after pilot acceptance criteria are met
 
-**Built with ❤️ by the DeFi Tome team and community.**
+### Milestone 5: Protocol Expansion - Future
+
+- [ ] Harden liquidity and fee-distribution workflows
+- [ ] Validate decentralized price-feed and oracle assumptions
+- [ ] Harden lending, liquidation, and rate-market workflows
+- [ ] Stabilize versioned external API and developer SDK
+- [ ] Add governance only after operational and security foundations mature
+
+## Documentation
+
+Maintainer references are collected in [`.github/docs/`](.github/docs/README.md):
+
+- [EVRMore command cheatsheet](.github/docs/commands-cheatsheet.md)
+- [Asset type reference](.github/docs/EVRMORE_ASSET_TYPES.md)
+- [Asset integration summary](.github/docs/ASSET_INTEGRATION_SUMMARY.md)
+- [Asset security summary](.github/docs/SECURITY_SUMMARY.md)
+- [NFT implementation notes](.github/docs/NFT_IMPLEMENTATION_COMPLETE.md)
+- [RIP-0010 address metadata tags](.github/docs/RIP-0010_ADDRESS_METADATA_TAGS.md)
+
+The application also serves its current API catalog at `/api/docs/`.
+
+## Security
+
+- Treat the default Django secret, `DEBUG=True`, SQLite, and permissive hosts as
+  local-development defaults only.
+- Never commit RPC credentials, wallet secrets, passphrases, API secrets, or
+  production `.env` files.
+- Use a local node for signing, broadcast, UTXO-critical decisions, and methods
+  unavailable through restricted public RPC endpoints.
+- Preserve raw-transaction mempool preflight and source-change invariants when
+  extending transaction code.
+- Do not use this alpha with funds you cannot afford to lose.
+
+## Contributing
+
+Keep changes focused, add tests for behavioral changes, and run the validation
+commands above. EVRMore transaction changes must use the existing RPC wrappers,
+raw transaction helpers, local-node validation, and `testmempoolaccept` gate.
+Internal implementation notes belong under [`.github/docs/`](.github/docs/README.md).

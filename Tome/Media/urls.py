@@ -8,6 +8,7 @@ urlpatterns = [
     path('address-tags/<int:pk>/verify/', views.address_metadata_tag_verify, name='address_metadata_tag_verify'),
     path('', views.media_list, name='media_list'),
     path('upload/', views.media_upload, name='media_upload'),
+    path('<int:pk>/preview/', views.media_preview, name='media_preview'),
     path('<int:pk>/edit/', views.media_edit, name='media_edit'),
     path('<int:pk>/delete/', views.media_delete, name='media_delete'),
 ]

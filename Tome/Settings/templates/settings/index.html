@@ -387,6 +387,7 @@
             margin-left: auto;
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -395,7 +396,7 @@
             <nav>
                 <a href="{% url 'home' %}">Home</a>
                 <a href="{% url 'explorer' %}">Explorer</a>
-                <a href="{% url 'listings' %}">Atomic Swaps</a>
+                <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
                 <a href="{% url 'portfolio' %}">Portfolio</a>
                 <a href="{% url 'api_docs' %}">Docs</a>
                 <span class="env-chip">Network: <strong>{{ user_network_display }}</strong> | RPC: <strong>{{ user_rpc_endpoint_display }}</strong></span>

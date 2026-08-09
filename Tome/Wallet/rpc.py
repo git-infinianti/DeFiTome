@@ -1,12 +1,19 @@
+import hashlib
+import struct
 from collections import OrderedDict
 from decimal import Decimal, InvalidOperation, ROUND_DOWN, ROUND_UP
+
+from base58 import b58decode, b58decode_check, b58encode_check
+
 from Tome.rpc_client import RPC
 
 SATOSHIS_PER_EVR = Decimal('100000000')
-DEFAULT_FEE_EVR = Decimal('0.0001')
-DEFAULT_FEE_CONF_TARGET = 6
-DEFAULT_FEE_ESTIMATE_MODE = 'CONSERVATIVE'
-FEE_SAFETY_MULTIPLIER = Decimal('1.05')
+DEFAULT_FEE_EVR = Decimal('0.0001')  # 0.0001 EVR as a default fee fallback
+DEFAULT_MIN_RELAY_FEE_EVR_PER_KB = Decimal('0.01')
+NO_ESTIMATE_FEE_FLOOR_MULTIPLIER = Decimal('2')
+DEFAULT_FEE_CONF_TARGET = 2  # Target faster confirmation when estimator data is available.
+DEFAULT_FEE_ESTIMATE_MODE = 'CONSERVATIVE' # Default fee estimation mode for RPC calls
+FEE_SAFETY_MULTIPLIER = Decimal('1.05')  # ~5% safety margin for fee estimation
 DUST_THRESHOLD_SATS = 546
 MAX_SEQUENCE = 0xFFFFFFFF
 RBF_SEQUENCE = 0xFFFFFFFD
@@ -20,6 +27,19 @@ BURN_ADDRESS_ISSUE_RESTRICTED = 'EXissueRestrictedXXXXXXXXXXXZZMynb'
 BURN_ADDRESS_ISSUE_QUALIFIER = 'EXissueQuaLifierXXXXXXXXXXXXW5Zxyf'
 BURN_ADDRESS_ISSUE_SUBQUALIFIER = 'EXissueSubQuaLifierXXXXXXXXXUgTjtu'
 BURN_ADDRESS_TAG = 'EXaddTagBurnXXXXXXXXXXXXXXXXb5HLXh'
+
+BURN_ADDRESS_FALLBACKS = {
+    'issue_asset': BURN_ADDRESS_ISSUE_ASSET,
+    'issue_sub_asset': BURN_ADDRESS_ISSUE_SUBASSET,
+    'issue_unique_asset': BURN_ADDRESS_ISSUE_UNIQUE,
+    'reissue_or_remint_asset': BURN_ADDRESS_REISSUE_ASSET,
+    'issue_restricted_asset': BURN_ADDRESS_ISSUE_RESTRICTED,
+    'issue_qualifier_asset': BURN_ADDRESS_ISSUE_QUALIFIER,
+    'issue_sub_qualifier_asset': BURN_ADDRESS_ISSUE_SUBQUALIFIER,
+    'add_null_qualifier_tag': BURN_ADDRESS_TAG,
+    # Mainnet fallback only; testnet should come from getburnaddresses.
+    'issue_msg_channel_asset': BURN_ADDRESS_ISSUE_SUBASSET,
+}
 
 # Create inputs and outputs for a raw transaction
 def itxo(txid, vout):
@@ -43,6 +63,145 @@ def _satoshis_to_evr(satoshis):
 
 def _evr_output_value(amount):
     return format(_to_decimal_evr(amount), 'f')
+
+
+def _p2pkh_script_pub_key(address):
+    try:
+        decoded = b58decode_check(str(address))
+    except Exception as exc:
+        raise Exception(f'Unable to encode output address {address}: {str(exc)}') from exc
+
+    if len(decoded) != 21:
+        raise Exception(f'Output address is not a supported P2PKH address: {address}')
+
+    return b'\x76\xa9\x14' + decoded[1:] + b'\x88\xac'
+
+
+def _p2pkh_hash160(address):
+    try:
+        decoded = b58decode_check(str(address))
+    except Exception as exc:
+        raise Exception(f'Unable to encode output address {address}: {str(exc)}') from exc
+
+    if len(decoded) != 21:
+        raise Exception(f'Output address is not a supported P2PKH address: {address}')
+
+    return decoded[1:]
+
+
+def _temporary_output_address(address, occurrence):
+    decoded = b58decode_check(str(address))
+    if len(decoded) != 21:
+        raise Exception(f'Output address is not a supported P2PKH address: {address}')
+
+    seed = f'{address}:{int(occurrence)}'.encode('ascii')
+    payload = decoded[:1] + hashlib.sha256(seed).digest()[:20]
+    return b58encode_check(payload).decode('ascii')
+
+
+def _compact_size(value):
+    number = int(value)
+    if number < 0:
+        raise ValueError('CompactSize value cannot be negative.')
+    if number < 253:
+        return bytes((number,))
+    if number <= 0xFFFF:
+        return b'\xfd' + struct.pack('<H', number)
+    if number <= 0xFFFFFFFF:
+        return b'\xfe' + struct.pack('<I', number)
+    return b'\xff' + struct.pack('<Q', number)
+
+
+def _push_script_data(payload):
+    size = len(payload)
+    if size < 76:
+        return bytes((size,)) + payload
+    if size <= 0xFF:
+        return b'\x4c' + bytes((size,)) + payload
+    if size <= 0xFFFF:
+        return b'\x4d' + struct.pack('<H', size) + payload
+    raise ValueError('Asset payload exceeds the supported script size.')
+
+
+def _decode_asset_hash(encoded_hash):
+    value = str(encoded_hash or '').strip()
+    if len(value) == 46:
+        decoded = b58decode(value)
+        if len(decoded) != 34:
+            raise ValueError('IPFS asset metadata must decode to 34 bytes.')
+        return decoded[:1] + _compact_size(32) + decoded[2:]
+    if len(value) == 64:
+        try:
+            decoded = bytes.fromhex(value)
+        except ValueError as exc:
+            raise ValueError('Transaction metadata must be a 64-character hexadecimal value.') from exc
+        return b'\x54' + _compact_size(32) + decoded
+    raise ValueError('Asset metadata must be a 46-character IPFS CID or 64-character transaction id.')
+
+
+def _new_asset_script(address, asset_data):
+    if not isinstance(asset_data, dict):
+        raise ValueError('New asset data is required.')
+
+    asset_name = str(asset_data.get('asset_name') or '')
+    encoded_name = asset_name.encode('ascii')
+    asset_quantity = _to_satoshis(asset_data.get('asset_quantity'))
+    units = int(asset_data.get('units') or 0)
+    reissuable = int(bool(asset_data.get('reissuable')))
+    has_ipfs = int(bool(asset_data.get('has_ipfs')))
+
+    serialized_asset = (
+        _compact_size(len(encoded_name))
+        + encoded_name
+        + struct.pack('<q', asset_quantity)
+        + bytes((units, reissuable, has_ipfs))
+    )
+    if has_ipfs:
+        serialized_asset += _decode_asset_hash(asset_data.get('ipfs_hash'))
+
+    asset_message = b'evrq' + serialized_asset
+    return _p2pkh_script_pub_key(address) + b'\xc0' + _push_script_data(asset_message) + b'\x75'
+
+
+def _qualifier_asset_script(address, operation_payload):
+    qualifier = operation_payload.get('issue_qualifier') if isinstance(operation_payload, dict) else None
+    if not isinstance(qualifier, dict):
+        raise ValueError('Qualifier operation payload is required.')
+    return _new_asset_script(address, qualifier)
+
+
+def _output_entries(outputs):
+    if isinstance(outputs, dict):
+        return list(outputs.items())
+
+    if isinstance(outputs, (list, tuple)):
+        entries = []
+        for output in outputs:
+            if not isinstance(output, dict) or len(output) != 1:
+                raise Exception('Each raw transaction output must contain exactly one address.')
+            entries.extend(output.items())
+        return entries
+
+    raise Exception('Raw transaction outputs must be a mapping or a list of single-address mappings.')
+
+
+def _resolve_burn_address(key):
+    burn_key = str(key or '').strip().lower()
+    try:
+        addresses = RPC.getburnaddresses()
+    except Exception:
+        addresses = None
+
+    if isinstance(addresses, dict):
+        value = str(addresses.get(burn_key) or '').strip()
+        if value:
+            return value
+
+    fallback = str(BURN_ADDRESS_FALLBACKS.get(burn_key) or '').strip()
+    if fallback:
+        return fallback
+
+    raise Exception(f'No burn address available for key: {burn_key}')
 
 
 def _estimate_tx_size_bytes(input_count, output_count):
@@ -77,38 +236,39 @@ def _get_estimated_feerate_evr_per_kb(conf_target=DEFAULT_FEE_CONF_TARGET,
     target = max(1, min(1008, int(conf_target or DEFAULT_FEE_CONF_TARGET)))
     mode = str(estimate_mode or DEFAULT_FEE_ESTIMATE_MODE).upper()
 
-    call_errors = []
-    result = None
+    estimates = []
+    metadata = {'errors': [], 'sources': {}}
 
-    for call in (
-        lambda: RPC.estimatesmartfee(target, mode),
-        lambda: RPC.estimatesmartfee(target),
-    ):
+    smart_result = None
+    for call in (lambda: RPC.estimatesmartfee(target, mode), lambda: RPC.estimatesmartfee(target)):
         try:
-            result = call()
+            smart_result = call()
             break
         except Exception as exc:
-            call_errors.append(str(exc))
+            metadata['errors'].append(f'estimatesmartfee: {str(exc)}')
 
-    if result is None:
-        return None, {'errors': call_errors}
-
-    if not isinstance(result, dict):
-        return None, {'errors': [f'Unexpected estimatesmartfee response: {result}']}
-
-    feerate = result.get('feerate')
-    if feerate is None:
-        return None, {'errors': result.get('errors') or ['Fee estimate missing feerate.'], 'blocks': result.get('blocks')}
+    if isinstance(smart_result, dict):
+        metadata['sources']['estimatesmartfee'] = smart_result
+        smart_feerate = _parse_positive_decimal(smart_result.get('feerate'))
+        if smart_feerate is not None:
+            estimates.append(smart_feerate)
+        else:
+            metadata['errors'].extend(smart_result.get('errors') or ['estimatesmartfee returned no feerate.'])
+    elif smart_result is not None:
+        metadata['errors'].append(f'Unexpected estimatesmartfee response: {smart_result}')
 
     try:
-        feerate_decimal = Decimal(str(feerate))
-    except Exception:
-        return None, {'errors': [f'Invalid feerate returned: {feerate}'], 'blocks': result.get('blocks')}
+        legacy_result = RPC.estimatefee(target)
+        metadata['sources']['estimatefee'] = legacy_result
+        legacy_feerate = _parse_positive_decimal(legacy_result)
+        if legacy_feerate is not None:
+            estimates.append(legacy_feerate)
+        else:
+            metadata['errors'].append(f'estimatefee returned no usable feerate: {legacy_result}')
+    except Exception as exc:
+        metadata['errors'].append(f'estimatefee: {str(exc)}')
 
-    if feerate_decimal <= 0:
-        return None, {'errors': [f'Non-positive feerate returned: {feerate_decimal}'], 'blocks': result.get('blocks')}
-
-    return feerate_decimal, {'blocks': result.get('blocks')}
+    return (max(estimates) if estimates else None), metadata
 
 
 def _parse_positive_decimal(value):
@@ -124,7 +284,7 @@ def _parse_positive_decimal(value):
 
 def _get_fee_floor_evr_per_kb():
     """Return a conservative fee-rate floor from relay and mempool settings."""
-    candidates = []
+    candidates = [DEFAULT_MIN_RELAY_FEE_EVR_PER_KB]
     errors = []
 
     try:
@@ -148,9 +308,6 @@ def _get_fee_floor_evr_per_kb():
     except Exception as exc:
         errors.append(f'getnetworkinfo: {str(exc)}')
 
-    if not candidates:
-        return None, {'errors': errors}
-
     return max(candidates), {'errors': errors}
 
 
@@ -159,9 +316,6 @@ def _resolve_fee_satoshis(explicit_fee_evr, input_count, output_count,
                           estimate_mode=DEFAULT_FEE_ESTIMATE_MODE,
                           fallback_fee_evr=DEFAULT_FEE_EVR,
                           tx_size_bytes=None):
-    if explicit_fee_evr is not None:
-        return _to_satoshis(explicit_fee_evr)
-
     feerate, _meta = _get_estimated_feerate_evr_per_kb(
         conf_target=conf_target,
         estimate_mode=estimate_mode,
@@ -174,21 +328,24 @@ def _resolve_fee_satoshis(explicit_fee_evr, input_count, output_count,
     elif feerate is not None:
         effective_feerate = feerate
     elif fee_floor is not None:
-        effective_feerate = fee_floor
-
-    if effective_feerate is None:
-        return _to_satoshis(fallback_fee_evr)
+        effective_feerate = fee_floor * NO_ESTIMATE_FEE_FLOOR_MULTIPLIER
 
     estimated_size_bytes = int(tx_size_bytes or 0)
     if estimated_size_bytes <= 0:
         estimated_size_bytes = _estimate_tx_size_bytes(input_count, output_count)
 
     tx_size_kb = Decimal(estimated_size_bytes) / Decimal('1000')
+    if effective_feerate is None:
+        effective_feerate = DEFAULT_MIN_RELAY_FEE_EVR_PER_KB * NO_ESTIMATE_FEE_FLOOR_MULTIPLIER
+
     estimated_fee_evr = (effective_feerate * tx_size_kb * FEE_SAFETY_MULTIPLIER).quantize(
         Decimal('0.00000001'),
         rounding=ROUND_UP,
     )
     estimated_fee_satoshis = _to_satoshis(estimated_fee_evr)
+
+    if explicit_fee_evr is not None:
+        return max(_to_satoshis(explicit_fee_evr), estimated_fee_satoshis)
 
     if estimated_fee_satoshis <= 0:
         return _to_satoshis(fallback_fee_evr)
@@ -284,6 +441,26 @@ def _amount_from_utxo(utxo_item):
         return 0
 
 
+def _mempool_spent_outpoints():
+    try:
+        transaction_ids = RPC.getrawmempool() or []
+    except Exception:
+        return set()
+
+    spent_outpoints = set()
+    for transaction_id in transaction_ids:
+        try:
+            transaction = RPC.getrawtransaction(transaction_id, True)
+        except Exception:
+            continue
+        for transaction_input in transaction.get('vin', []):
+            previous_txid = transaction_input.get('txid')
+            previous_vout = transaction_input.get('vout')
+            if previous_txid is not None and previous_vout is not None:
+                spent_outpoints.add((str(previous_txid), int(previous_vout)))
+    return spent_outpoints
+
+
 def _asset_amount_from_utxo(utxo_item):
     explicit = (
         utxo_item.get('assetAmount')
@@ -303,11 +480,13 @@ def _asset_amount_from_utxo(utxo_item):
         return 0
 
 
-def _find_authorization_input(utxos, authorization_asset_name, sequence=None):
+def _find_authorization_input(utxos, authorization_asset_name, sequence=None, address=None,
+                              excluded_keys=None):
     if not authorization_asset_name:
         return None
 
     auth_name = str(authorization_asset_name).upper()
+    excluded = set(excluded_keys or set())
     for utxo_item in utxos:
         utxo_asset = _asset_name_from_utxo(utxo_item)
         if not utxo_asset:
@@ -319,7 +498,23 @@ def _find_authorization_input(utxos, authorization_asset_name, sequence=None):
         if Decimal(str(_amount_from_utxo(utxo_item))) <= 0:
             continue
 
-        return _build_input_entry(utxo_item, sequence)
+        input_entry = _build_input_entry(utxo_item, sequence)
+        if (input_entry['txid'], input_entry['vout']) in excluded:
+            continue
+        return input_entry, Decimal(str(_amount_from_utxo(utxo_item)))
+
+    if address:
+        filtered_utxos = _get_address_utxos(address, authorization_asset_name)
+        for utxo_item in filtered_utxos:
+            utxo_asset = _asset_name_from_utxo(utxo_item)
+            if str(utxo_asset or '').upper() != auth_name:
+                continue
+            if Decimal(str(_amount_from_utxo(utxo_item))) <= 0:
+                continue
+            input_entry = _build_input_entry(utxo_item, sequence)
+            if (input_entry['txid'], input_entry['vout']) in excluded:
+                continue
+            return input_entry, Decimal(str(_amount_from_utxo(utxo_item)))
 
     raise Exception(f'Authorization asset input not found: {authorization_asset_name}')
 
@@ -336,6 +531,7 @@ def _owner_token_name(asset_name_or_root):
         asset_name = asset_name[1:]
 
     root_name = asset_name.split('/')[0]
+    root_name = root_name.split('~')[0]
     root_name = root_name.split('#')[0]
     return f'{root_name}!'
 
@@ -352,16 +548,24 @@ def _root_qualifier_name(asset_name):
     return normalized.split('/')[0]
 
 
-def _select_evr_inputs(address, required_satoshis, locktime=0, replaceable=False):
+def _select_evr_inputs(address, required_satoshis, locktime=0, replaceable=False, excluded_keys=None):
     utxos = sorted(_get_address_utxos(address), key=lambda item: int(item.get('satoshis', 0)), reverse=True)
 
     total_selected = 0
     selected_inputs = []
+    excluded = set(excluded_keys or set()) | _mempool_spent_outpoints()
     sequence = _sequence_for_input(locktime=locktime, replaceable=replaceable)
     include_sequence = sequence != MAX_SEQUENCE
 
     for utxo_item in utxos:
         if not _is_evr_utxo(utxo_item):
+            continue
+
+        key = (
+            utxo_item.get('txid'),
+            int(utxo_item.get('outputIndex', utxo_item.get('vout', -1))),
+        )
+        if key in excluded:
             continue
 
         satoshis = int(utxo_item.get('satoshis', 0))
@@ -393,6 +597,7 @@ def _select_asset_inputs(address, asset_name, required_quantity, locktime=0, rep
     selected_inputs = []
     selected_quantity = Decimal('0')
     selected_coin_satoshis = 0
+    excluded = _mempool_spent_outpoints()
 
     for utxo_item in _get_address_utxos(address, asset_name=normalized_asset_name):
         utxo_asset_name = _asset_name_from_utxo(utxo_item)
@@ -407,7 +612,10 @@ def _select_asset_inputs(address, asset_name, required_quantity, locktime=0, rep
         if asset_amount <= 0:
             continue
 
-        selected_inputs.append(_build_input_entry(utxo_item, sequence if include_sequence else None))
+        input_entry = _build_input_entry(utxo_item, sequence if include_sequence else None)
+        if (input_entry['txid'], input_entry['vout']) in excluded:
+            continue
+        selected_inputs.append(input_entry)
         selected_quantity += asset_amount
 
         # Asset UTXO satoshis encode asset quantity and are not EVR coin value.
@@ -435,22 +643,19 @@ def _select_inputs_for_operation(from_address, required_evr_satoshis,
     selected_inputs = []
     selected_keys = set()
     selected_total_satoshis = 0
+    authorization_quantity = Decimal('0')
+    mempool_spent = _mempool_spent_outpoints()
 
     if authorization_asset_name:
-        auth_input = _find_authorization_input(
+        auth_input, authorization_quantity = _find_authorization_input(
             utxos,
             authorization_asset_name=authorization_asset_name,
             sequence=sequence if include_sequence else None,
+            address=from_address,
+            excluded_keys=mempool_spent,
         )
         selected_inputs.append(auth_input)
         selected_keys.add((auth_input['txid'], auth_input['vout']))
-
-        for utxo_item in utxos:
-            txid = utxo_item.get('txid')
-            vout = utxo_item.get('outputIndex', utxo_item.get('vout'))
-            if txid == auth_input['txid'] and int(vout) == auth_input['vout']:
-                selected_total_satoshis += int(utxo_item.get('satoshis', 0))
-                break
 
     evr_candidates = sorted(utxos, key=lambda item: int(item.get('satoshis', 0)), reverse=True)
 
@@ -466,7 +671,7 @@ def _select_inputs_for_operation(from_address, required_evr_satoshis,
         if not _is_evr_utxo(utxo_item):
             continue
 
-        if (txid, vout) in selected_keys:
+        if (txid, vout) in selected_keys or (txid, vout) in mempool_spent:
             continue
 
         selected_inputs.append(_build_input_entry(utxo_item, sequence if include_sequence else None))
@@ -481,7 +686,7 @@ def _select_inputs_for_operation(from_address, required_evr_satoshis,
         available = _satoshis_to_evr(selected_total_satoshis)
         raise Exception(f'Insufficient EVR balance for operation. Needed: {needed}, available: {available}.')
 
-    return selected_inputs, selected_total_satoshis
+    return selected_inputs, selected_total_satoshis, authorization_quantity
 
 
 def compose_asset_operation_outputs(coin_outputs, operation_address, operation_payload,
@@ -492,16 +697,16 @@ def compose_asset_operation_outputs(coin_outputs, operation_address, operation_p
     2) Owner/root token change output next (if required)
     3) Asset operation output last
     """
-    outputs = OrderedDict()
+    outputs = []
 
     for address, amount in coin_outputs.items():
-        outputs[address] = _evr_output_value(amount)
+        outputs.append({address: _evr_output_value(amount)})
 
     if owner_token_change_output:
         change_address, payload = owner_token_change_output
-        outputs[change_address] = payload
+        outputs.append({change_address: payload})
 
-    outputs[operation_address] = operation_payload
+    outputs.append({operation_address: operation_payload})
     return outputs
 
 
@@ -570,8 +775,21 @@ def broadcast_signed_transaction(signed_hex):
     return RPC.sendrawtransaction(signed_hex)
 
 
+def test_mempool_accept_signed_transaction(signed_hex):
+    result = RPC.testmempoolaccept([signed_hex])
+    if not isinstance(result, list) or len(result) != 1 or not isinstance(result[0], dict):
+        raise Exception(f'Unexpected testmempoolaccept response: {result}')
+
+    acceptance = result[0]
+    if not bool(acceptance.get('allowed')):
+        reason = acceptance.get('reject-reason') or acceptance.get('reject_reason') or 'transaction rejected'
+        raise Exception(f'Transaction rejected by testmempoolaccept: {reason}')
+    return acceptance
+
+
 def sign_and_broadcast_raw_transaction(raw_tx, wif_keys=None):
     signed_hex = sign_raw_transaction(raw_tx, wif_keys=wif_keys)
+    test_mempool_accept_signed_transaction(signed_hex)
     return broadcast_signed_transaction(signed_hex)
 
 
@@ -589,6 +807,8 @@ def create_raw_asset_operation_transaction(
     fee_estimate_mode=DEFAULT_FEE_ESTIMATE_MODE,
     locktime=0,
     replaceable=False,
+    evr_change_address=None,
+    authorization_change_output_required=True,
 ):
     """
     Create a raw asset-operation transaction without signing or broadcasting it.
@@ -596,12 +816,18 @@ def create_raw_asset_operation_transaction(
     if not operation_address:
         raise Exception('operation_address is required.')
 
+    source_address = str(from_address or '').strip()
+    if not source_address:
+        raise Exception('from_address is required.')
+
     burn_satoshis = _to_satoshis(burn_amount_evr)
     if burn_satoshis > 0 and not burn_address:
         raise Exception('burn_address is required when burn_amount_evr is greater than zero.')
 
     extra_outputs_count = len(extra_coin_outputs or {})
-    owner_change_count = 1 if owner_token_change_output else 0
+    owner_change_count = 1 if owner_token_change_output or (
+        authorization_asset_name and authorization_change_output_required
+    ) else 0
     asset_output_count = 1
     provisional_fee_sats = _resolve_fee_satoshis(
         explicit_fee_evr=fee_evr,
@@ -619,13 +845,23 @@ def create_raw_asset_operation_transaction(
 
     for _ in range(4):
         required_satoshis = burn_satoshis + final_fee_satoshis
-        selected_inputs, selected_total = _select_inputs_for_operation(
+        selected_inputs, selected_total, authorization_quantity = _select_inputs_for_operation(
             from_address=from_address,
             required_evr_satoshis=required_satoshis,
             authorization_asset_name=authorization_asset_name,
             locktime=locktime,
             replaceable=replaceable,
         )
+
+        if authorization_asset_name and authorization_change_output_required:
+            owner_token_change_output = (
+                source_address,
+                {
+                    'transfer': {
+                        str(authorization_asset_name): float(authorization_quantity),
+                    }
+                },
+            )
 
         coin_outputs = OrderedDict()
         if burn_satoshis > 0:
@@ -644,7 +880,7 @@ def create_raw_asset_operation_transaction(
             raise Exception(f'Insufficient EVR after output assembly. Needed: {needed}, available: {available}.')
 
         if change_satoshis >= DUST_THRESHOLD_SATS:
-            coin_outputs[from_address] = _satoshis_to_evr(change_satoshis)
+            coin_outputs[source_address] = _satoshis_to_evr(change_satoshis)
 
         outputs = compose_asset_operation_outputs(
             coin_outputs=coin_outputs,
@@ -684,7 +920,7 @@ def create_raw_asset_operation_transaction(
     return {
         'raw_tx': raw_tx,
         'inputs': selected_inputs,
-        'outputs': dict(outputs),
+        'outputs': outputs,
     }
 
 
@@ -703,6 +939,7 @@ def create_and_send_asset_operation_transaction(
     locktime=0,
     replaceable=False,
     wif_keys=None,
+    evr_change_address=None,
 ):
     """
     Create, sign, and broadcast an asset operation transaction.
@@ -721,6 +958,7 @@ def create_and_send_asset_operation_transaction(
         fee_estimate_mode=fee_estimate_mode,
         locktime=locktime,
         replaceable=replaceable,
+        evr_change_address=evr_change_address,
     )
     txid = sign_and_broadcast_raw_transaction(tx_data['raw_tx'], wif_keys=wif_keys)
 
@@ -774,7 +1012,7 @@ def create_raw_evr_transaction(from_address, to_address, amount_evr, change_addr
 
         change_satoshis = selected_total - required_satoshis
         if change_satoshis >= DUST_THRESHOLD_SATS:
-            outputs[change_address or from_address] = _evr_output_value(_satoshis_to_evr(change_satoshis))
+            outputs[from_address] = _evr_output_value(_satoshis_to_evr(change_satoshis))
 
         raw_tx = create_raw_transaction(
             inputs=selected_inputs,
@@ -843,7 +1081,8 @@ def create_raw_asset_transfer_transaction(from_address, to_address, asset_name, 
                                           fee_conf_target=DEFAULT_FEE_CONF_TARGET,
                                           fee_estimate_mode=DEFAULT_FEE_ESTIMATE_MODE,
                                           locktime=0, replaceable=False,
-                                          asset_change_address=None):
+                                          asset_change_address=None, message=None,
+                                          expire_time=0):
     """
     Create a raw asset transfer transaction without signing or broadcasting it.
     """
@@ -907,9 +1146,9 @@ def create_raw_asset_transfer_transaction(from_address, to_address, asset_name, 
             available = _satoshis_to_evr(evr_total_satoshis)
             raise Exception(f'Insufficient EVR for fees. Needed: {needed}, available: {available}.')
 
-    outputs = OrderedDict()
-    coin_change_address = change_address or from_address
-    asset_change_target = asset_change_address or from_address
+    outputs = []
+    coin_change_address = from_address
+    asset_change_target = from_address
     raw_tx = None
 
     # Iteratively re-estimate fee based on selected inputs/outputs.
@@ -924,32 +1163,39 @@ def create_raw_asset_transfer_transaction(from_address, to_address, asset_name, 
     for _ in range(4):
         _select_evr_fee_inputs(fee_satoshis)
 
-        outputs = OrderedDict()
-        outputs[to_address] = {
-            'transfer': {
-                asset_name: float(asset_quantity_decimal),
-            }
-        }
-
-        if selected_asset_change > 0:
-            if asset_change_target == to_address:
-                raise Exception('Asset change address must differ from destination address.')
-            outputs[asset_change_target] = {
-                'transfer': {
-                    asset_name: float(selected_asset_change),
+        if message:
+            transfer_payload = {
+                'transferwithmessage': {
+                    asset_name: float(asset_quantity_decimal),
+                    'message': str(message),
+                    'expire_time': int(expire_time),
                 }
             }
+        else:
+            transfer_payload = {
+                'transfer': {
+                    asset_name: float(asset_quantity_decimal),
+                }
+            }
+
+        outputs = [{to_address: transfer_payload}]
+
+        if selected_asset_change > 0:
+            outputs.append(
+                {
+                    asset_change_target: {
+                        'transfer': {
+                            asset_name: float(selected_asset_change),
+                        }
+                    }
+                }
+            )
 
         total_input_satoshis = evr_total_satoshis
         coin_change_satoshis = total_input_satoshis - fee_satoshis
 
         if coin_change_satoshis >= DUST_THRESHOLD_SATS:
-            if coin_change_address in outputs:
-                raise Exception(
-                    'Coin change address conflicts with asset output address. '
-                    'Use a distinct change_address or asset_change_address.'
-                )
-            outputs[coin_change_address] = _evr_output_value(_satoshis_to_evr(coin_change_satoshis))
+            outputs.append({coin_change_address: _evr_output_value(_satoshis_to_evr(coin_change_satoshis))})
 
         candidate_inputs = [*asset_inputs, *evr_inputs]
         raw_tx = create_raw_transaction(
@@ -984,7 +1230,7 @@ def create_raw_asset_transfer_transaction(from_address, to_address, asset_name, 
     return {
         'raw_tx': raw_tx,
         'inputs': inputs,
-        'outputs': dict(outputs),
+        'outputs': outputs,
     }
 
 
@@ -993,7 +1239,8 @@ def create_and_send_asset_transfer_transaction(from_address, to_address, asset_n
                                                fee_conf_target=DEFAULT_FEE_CONF_TARGET,
                                                fee_estimate_mode=DEFAULT_FEE_ESTIMATE_MODE,
                                                locktime=0, replaceable=False, wif_keys=None,
-                                               asset_change_address=None):
+                                               asset_change_address=None, message=None,
+                                               expire_time=0):
     """
     Create, sign, and broadcast an asset transfer transaction.
     """
@@ -1009,6 +1256,8 @@ def create_and_send_asset_transfer_transaction(from_address, to_address, asset_n
         locktime=locktime,
         replaceable=replaceable,
         asset_change_address=asset_change_address,
+        message=message,
+        expire_time=expire_time,
     )
     txid = sign_and_broadcast_raw_transaction(tx_data['raw_tx'], wif_keys=wif_keys)
 
@@ -1186,6 +1435,199 @@ def create_and_send_atomic_asset_evr_swap_transaction(
     }
 
 
+def create_raw_atomic_asset_asset_swap_transaction(
+    seller_address,
+    buyer_address,
+    seller_asset_name,
+    seller_asset_quantity,
+    buyer_asset_name,
+    buyer_asset_quantity,
+    fee_evr=None,
+    fee_conf_target=DEFAULT_FEE_CONF_TARGET,
+    fee_estimate_mode=DEFAULT_FEE_ESTIMATE_MODE,
+    locktime=0,
+    replaceable=False,
+):
+    """Create a single Evrmore transaction that swaps one asset for another."""
+    if not seller_address or not buyer_address:
+        raise Exception('Seller and buyer addresses are required.')
+    if seller_address == buyer_address:
+        raise Exception('Seller and buyer addresses must be different.')
+
+    seller_asset_name = str(seller_asset_name or '').strip()
+    buyer_asset_name = str(buyer_asset_name or '').strip()
+    if not seller_asset_name or not buyer_asset_name:
+        raise Exception('Both seller and buyer asset names are required.')
+    if seller_asset_name == buyer_asset_name:
+        raise Exception('Asset-for-asset swaps require different assets.')
+
+    try:
+        seller_asset_quantity_decimal = Decimal(str(seller_asset_quantity))
+        buyer_asset_quantity_decimal = Decimal(str(buyer_asset_quantity))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise Exception('Asset quantities must be valid decimal values.') from exc
+
+    if seller_asset_quantity_decimal <= 0 or buyer_asset_quantity_decimal <= 0:
+        raise Exception('Asset quantities must be greater than zero.')
+
+    seller_inputs, seller_selected_quantity, seller_input_satoshis = _select_asset_inputs(
+        address=seller_address,
+        asset_name=seller_asset_name,
+        required_quantity=seller_asset_quantity_decimal,
+        locktime=locktime,
+        replaceable=replaceable,
+    )
+    buyer_asset_inputs, buyer_selected_quantity, buyer_asset_input_satoshis = _select_asset_inputs(
+        address=buyer_address,
+        asset_name=buyer_asset_name,
+        required_quantity=buyer_asset_quantity_decimal,
+        locktime=locktime,
+        replaceable=replaceable,
+    )
+
+    seller_asset_change = seller_selected_quantity - seller_asset_quantity_decimal
+    buyer_asset_change = buyer_selected_quantity - buyer_asset_quantity_decimal
+
+    provisional_fee_satoshis = _resolve_fee_satoshis(
+        explicit_fee_evr=fee_evr,
+        input_count=len(seller_inputs) + len(buyer_asset_inputs) + 1,
+        output_count=4,
+        conf_target=fee_conf_target,
+        estimate_mode=fee_estimate_mode,
+    )
+
+    final_fee_satoshis = provisional_fee_satoshis
+    buyer_fee_inputs = []
+    buyer_fee_satoshis = 0
+    outputs = []
+    raw_tx = None
+
+    for _ in range(4):
+        seller_asset_output_count = 1 + (1 if seller_asset_change > 0 else 0)
+        buyer_asset_output_count = 1 + (1 if buyer_asset_change > 0 else 0)
+        total_asset_output_satoshis = DUST_THRESHOLD_SATS * (seller_asset_output_count + buyer_asset_output_count)
+
+        seller_native_refund = max(0, seller_input_satoshis - (DUST_THRESHOLD_SATS * seller_asset_output_count))
+        buyer_required_native = (
+            total_asset_output_satoshis
+            + final_fee_satoshis
+            + seller_native_refund
+            - seller_input_satoshis
+            - buyer_asset_input_satoshis
+        )
+        buyer_required_native = max(0, buyer_required_native)
+
+        buyer_fee_inputs, buyer_fee_satoshis = _select_evr_inputs(
+            address=buyer_address,
+            required_satoshis=buyer_required_native,
+            locktime=locktime,
+            replaceable=replaceable,
+            excluded_keys={(item['txid'], item['vout']) for item in buyer_asset_inputs},
+        )
+
+        buyer_native_change = (
+            seller_input_satoshis
+            + buyer_asset_input_satoshis
+            + buyer_fee_satoshis
+            - total_asset_output_satoshis
+            - final_fee_satoshis
+            - seller_native_refund
+        )
+        if buyer_native_change < 0:
+            continue
+
+        buyer_transfer = {
+            seller_asset_name: float(seller_asset_quantity_decimal),
+        }
+        if buyer_asset_change > 0:
+            buyer_transfer[buyer_asset_name] = float(buyer_asset_change)
+
+        seller_transfer = {
+            buyer_asset_name: float(buyer_asset_quantity_decimal),
+        }
+        if seller_asset_change > 0:
+            seller_transfer[seller_asset_name] = float(seller_asset_change)
+
+        outputs = [
+            {buyer_address: {'transfer': buyer_transfer}},
+            {seller_address: {'transfer': seller_transfer}},
+        ]
+
+        if seller_native_refund >= DUST_THRESHOLD_SATS:
+            outputs.append({seller_address: _evr_output_value(_satoshis_to_evr(seller_native_refund))})
+        if buyer_native_change >= DUST_THRESHOLD_SATS:
+            outputs.append({buyer_address: _evr_output_value(_satoshis_to_evr(buyer_native_change))})
+
+        candidate_inputs = [*seller_inputs, *buyer_asset_inputs, *buyer_fee_inputs]
+        raw_tx = create_raw_transaction(
+            inputs=candidate_inputs,
+            outputs=outputs,
+            locktime=locktime,
+            replaceable=replaceable,
+        )
+        measured_signed_size = _estimate_signed_tx_size_bytes(raw_tx, len(candidate_inputs))
+
+        next_fee_satoshis = _resolve_fee_satoshis(
+            explicit_fee_evr=fee_evr,
+            input_count=len(candidate_inputs),
+            output_count=len(outputs),
+            conf_target=fee_conf_target,
+            estimate_mode=fee_estimate_mode,
+            tx_size_bytes=measured_signed_size,
+        )
+        if next_fee_satoshis == final_fee_satoshis:
+            break
+        final_fee_satoshis = next_fee_satoshis
+
+    if raw_tx is None:
+        raise Exception('Unable to construct atomic asset-for-asset swap transaction.')
+
+    return {
+        'raw_tx': raw_tx,
+        'inputs': [*seller_inputs, *buyer_asset_inputs, *buyer_fee_inputs],
+        'outputs': outputs,
+        'seller_asset_change_quantity': seller_asset_change,
+        'buyer_asset_change_quantity': buyer_asset_change,
+        'fee_evr': _satoshis_to_evr(final_fee_satoshis),
+    }
+
+
+def create_and_send_atomic_asset_asset_swap_transaction(
+    seller_address,
+    buyer_address,
+    seller_asset_name,
+    seller_asset_quantity,
+    buyer_asset_name,
+    buyer_asset_quantity,
+    fee_evr=None,
+    fee_conf_target=DEFAULT_FEE_CONF_TARGET,
+    fee_estimate_mode=DEFAULT_FEE_ESTIMATE_MODE,
+    locktime=0,
+    replaceable=False,
+    wif_keys=None,
+):
+    """Create, sign with both parties, and broadcast an atomic asset-for-asset swap."""
+    tx_data = create_raw_atomic_asset_asset_swap_transaction(
+        seller_address=seller_address,
+        buyer_address=buyer_address,
+        seller_asset_name=seller_asset_name,
+        seller_asset_quantity=seller_asset_quantity,
+        buyer_asset_name=buyer_asset_name,
+        buyer_asset_quantity=buyer_asset_quantity,
+        fee_evr=fee_evr,
+        fee_conf_target=fee_conf_target,
+        fee_estimate_mode=fee_estimate_mode,
+        locktime=locktime,
+        replaceable=replaceable,
+    )
+    txid = sign_and_broadcast_raw_transaction(tx_data['raw_tx'], wif_keys=wif_keys)
+
+    return {
+        'txid': txid,
+        **tx_data,
+    }
+
+
 def create_and_send_transfer_with_message_transaction(
     from_address,
     to_address,
@@ -1198,24 +1640,21 @@ def create_and_send_transfer_with_message_transaction(
     fee_estimate_mode=DEFAULT_FEE_ESTIMATE_MODE,
     locktime=0,
     replaceable=False,
+    wif_keys=None,
 ):
-    operation_payload = {
-        'transferwithmessage': {
-            asset_name: float(Decimal(str(asset_quantity))),
-            'message': str(message),
-            'expire_time': int(expire_time),
-        }
-    }
-
-    return create_and_send_asset_operation_transaction(
+    return create_and_send_asset_transfer_transaction(
         from_address=from_address,
-        operation_address=to_address,
-        operation_payload=operation_payload,
+        to_address=to_address,
+        asset_name=asset_name,
+        asset_quantity=asset_quantity,
+        message=message,
+        expire_time=expire_time,
         fee_evr=fee_evr,
         fee_conf_target=fee_conf_target,
         fee_estimate_mode=fee_estimate_mode,
         locktime=locktime,
         replaceable=replaceable,
+        wif_keys=wif_keys,
     )
 
 
@@ -1234,22 +1673,48 @@ def create_and_send_issue_asset_transaction(
     locktime=0,
     replaceable=False,
     wif_keys=None,
+    owner_change_address=None,
+    owner_change_quantity=1,
+    evr_change_address=None,
 ):
-    is_subasset = '/' in str(asset_name)
-    burn_address = BURN_ADDRESS_ISSUE_SUBASSET if is_subasset else BURN_ADDRESS_ISSUE_ASSET
-    burn_amount = Decimal('100') if is_subasset else Decimal('500')
+    normalized_asset_name = str(asset_name)
+    is_subasset = '/' in normalized_asset_name
+    is_messaging_channel = '~' in normalized_asset_name
+    burn_address = _resolve_burn_address(
+        'issue_msg_channel_asset' if is_messaging_channel else ('issue_sub_asset' if is_subasset else 'issue_asset')
+    )
+    burn_amount = Decimal('100') if (is_subasset or is_messaging_channel) else Decimal('500')
 
+    operation_name = '_issue_new_asset' if is_messaging_channel else 'issue'
     operation_payload = {
-        'issue': {
-            'asset_name': str(asset_name),
+        operation_name: {
+            'asset_name': normalized_asset_name,
             'asset_quantity': float(Decimal(str(asset_quantity))),
             'units': int(units),
             'reissuable': int(bool(reissuable)),
             'has_ipfs': int(bool(has_ipfs)),
         }
     }
+    if not is_messaging_channel:
+        operation_payload[operation_name]['remintable'] = int(bool(reissuable))
     if has_ipfs:
-        operation_payload['issue']['ipfs_hash'] = str(ipfs_hash)
+        operation_payload[operation_name]['ipfs_hash'] = str(ipfs_hash)
+
+    authorization_asset_name = None
+    owner_token_change_output = None
+    if is_messaging_channel:
+        authorization_asset_name = _owner_token_name(normalized_asset_name)
+        resolved_owner_change_address = str(owner_change_address or from_address or '').strip()
+        if not resolved_owner_change_address:
+            raise Exception('owner_change_address or from_address is required for messaging channel issuance.')
+        owner_token_change_output = (
+            resolved_owner_change_address,
+            {
+                'transfer': {
+                    _owner_token_name(normalized_asset_name): float(Decimal(str(owner_change_quantity))),
+                }
+            }
+        )
 
     return create_and_send_asset_operation_transaction(
         from_address=from_address,
@@ -1257,12 +1722,15 @@ def create_and_send_issue_asset_transaction(
         operation_payload=operation_payload,
         burn_amount_evr=burn_amount,
         burn_address=burn_address,
+        authorization_asset_name=authorization_asset_name,
+        owner_token_change_output=owner_token_change_output,
         fee_evr=fee_evr,
         fee_conf_target=fee_conf_target,
         fee_estimate_mode=fee_estimate_mode,
         locktime=locktime,
         replaceable=replaceable,
         wif_keys=wif_keys,
+        evr_change_address=evr_change_address,
     )
 
 
@@ -1312,7 +1780,7 @@ def create_and_send_issue_unique_transaction(
         operation_address=issuer_address,
         operation_payload=operation_payload,
         burn_amount_evr=burn_total,
-        burn_address=BURN_ADDRESS_ISSUE_UNIQUE,
+        burn_address=_resolve_burn_address('issue_unique_asset'),
         authorization_asset_name=_owner_token_name(root_name),
         owner_token_change_output=owner_change_output,
         fee_evr=fee_evr,
@@ -1836,10 +2304,58 @@ def create_raw_transaction(inputs, outputs, locktime=0, replaceable=False):
         Exception: If RPC call fails
     """
     try:
+        rpc_outputs = OrderedDict()
+        script_replacements = []
+        local_asset_script_replacements = []
+        address_occurrences = {}
+
+        for address, payload in _output_entries(outputs):
+            occurrence = address_occurrences.get(address, 0)
+            address_occurrences[address] = occurrence + 1
+
+            rpc_address = address
+            if occurrence:
+                rpc_address = _temporary_output_address(address, occurrence)
+                while rpc_address in rpc_outputs:
+                    occurrence += 1
+                    rpc_address = _temporary_output_address(address, occurrence)
+                script_replacements.append((rpc_address, address))
+
+            if isinstance(payload, dict) and (
+                'issue_qualifier' in payload or '_issue_new_asset' in payload
+            ):
+                rpc_outputs[rpc_address] = _evr_output_value(0)
+                asset_data = payload.get('issue_qualifier') or payload.get('_issue_new_asset')
+                local_asset_script_replacements.append((rpc_address, asset_data))
+            else:
+                rpc_outputs[rpc_address] = payload
+
         if locktime or replaceable:
-            raw_tx = RPC.createrawtransaction(inputs, outputs, locktime, replaceable)
+            raw_tx = RPC.createrawtransaction(inputs, rpc_outputs, locktime, replaceable)
         else:
-            raw_tx = RPC.createrawtransaction(inputs, outputs)
+            raw_tx = RPC.createrawtransaction(inputs, rpc_outputs)
+
+        raw_tx = str(raw_tx).lower()
+        for asset_address, asset_data in local_asset_script_replacements:
+            placeholder_script = _p2pkh_script_pub_key(asset_address)
+            asset_script = _new_asset_script(asset_address, asset_data)
+            placeholder_output = (_compact_size(len(placeholder_script)) + placeholder_script).hex()
+            asset_output = (_compact_size(len(asset_script)) + asset_script).hex()
+            if raw_tx.count(placeholder_output) != 1:
+                raise Exception(
+                    f'Unable to locate asset placeholder output for address {asset_address}.'
+                )
+            raw_tx = raw_tx.replace(placeholder_output, asset_output)
+
+        for temporary_address, source_address in script_replacements:
+            temporary_hash = _p2pkh_hash160(temporary_address).hex()
+            source_hash = _p2pkh_hash160(source_address).hex()
+            if raw_tx.count(temporary_hash) < 1:
+                raise Exception(
+                    f'Unable to locate temporary output destination for source address {source_address}.'
+                )
+            raw_tx = raw_tx.replace(temporary_hash, source_hash)
+
         return raw_tx
     except Exception as e:
         raise Exception(f"Failed to create raw transaction: {str(e)}")

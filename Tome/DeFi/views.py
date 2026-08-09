@@ -2,24 +2,30 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F, Q, Sum
 from django.utils import timezone
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 import uuid
 from .models import (
     TestnetConfig, LiquidityPool, LiquidityPosition, SwapTransaction, 
-    SwapOffer, P2PSwapTransaction, PriceFeedSource,
+    SwapOffer, SwapFundingLock, P2PSwapTransaction, PriceFeedSource,
     PriceFeedData, PriceFeedAggregation, CollateralAsset, InterestRateConfig,
     LendingPool, Deposit, Loan, LoanRepayment, Liquidation
 )
-from Wallet.models import WalletAddress
+from Wallet.asset_tracking import classify_asset_type
+from Wallet.models import TrackedAsset, WalletAddress
 from Wallet.wallet import Wallet
+from Wallet.asset_units import normalize_amount_for_asset
+from Explorer.rpc import RPC
 from Wallet.rpc import (
+    create_raw_atomic_asset_asset_swap_transaction,
     create_raw_atomic_asset_evr_swap_transaction,
     sign_and_broadcast_raw_transaction,
 )
 from Tome.rpc_client import get_current_network_mode
+from .cleanup import purge_expired_swap_offers
+from .message_channels import ATOMIC_SWAP_REQUIRED_STAGES, get_active_atomic_swap_policy, record_atomic_swap_stage_event
 import statistics
 
 # Create your views here.
@@ -74,6 +80,89 @@ def _derive_user_wif_for_address(user, address):
         user_wallet.passphrase,
         network_mode=get_current_network_mode(),
     ).get_wif_for_address(address)
+
+
+def _to_decimal_amount(value):
+    try:
+        return Decimal(str(value or 0))
+    except (ValueError, InvalidOperation):
+        return Decimal('0')
+
+
+def _normalize_swap_amount_for_asset(symbol, amount, network_mode):
+    return normalize_amount_for_asset(
+        amount,
+        symbol,
+        network_mode,
+        field_label='Settlement amount',
+    )
+
+
+def _get_onchain_token_balance(user, token_symbol):
+    address = _get_user_primary_address(user)
+    if not address:
+        return Decimal('0')
+
+    normalized = str(token_symbol or '').strip().upper()
+    try:
+        if normalized == 'EVR':
+            balance_data = RPC.getaddressbalance({'addresses': [address]})
+            satoshis = int((balance_data or {}).get('balance', 0))
+            return Decimal(satoshis) * Decimal('1e-8')
+
+        balances = RPC.listassetbalancesbyaddress(address)
+        if not isinstance(balances, dict):
+            return Decimal('0')
+        return _to_decimal_amount(balances.get(normalized, 0))
+    except Exception:
+        return Decimal('0')
+
+
+def _get_locked_token_amount(user, token_symbol, network_mode, exclude_offer_id=None):
+    queryset = SwapFundingLock.objects.filter(
+        user=user,
+        token_symbol=str(token_symbol or '').strip().upper(),
+        status='locked',
+        swap_offer__network_mode=network_mode,
+    )
+    if exclude_offer_id is not None:
+        queryset = queryset.exclude(swap_offer_id=exclude_offer_id)
+
+    aggregate_value = queryset.aggregate(total=Sum('amount'))['total']
+    return _to_decimal_amount(aggregate_value)
+
+
+def _get_available_token_amount(user, token_symbol, network_mode, exclude_offer_id=None):
+    onchain = _get_onchain_token_balance(user, token_symbol)
+    locked = _get_locked_token_amount(user, token_symbol, network_mode, exclude_offer_id=exclude_offer_id)
+    available = onchain - locked
+    if available < 0:
+        return Decimal('0')
+    return available
+
+
+def _release_offer_funding_locks(swap_offer):
+    SwapFundingLock.objects.filter(
+        swap_offer=swap_offer,
+        status='locked',
+    ).update(status='released', released_at=timezone.now())
+
+
+def _consume_offer_funding_locks(swap_offer):
+    SwapFundingLock.objects.filter(
+        swap_offer=swap_offer,
+        status='locked',
+    ).update(status='consumed', released_at=timezone.now())
+
+
+def _derive_temp_txid(raw_tx):
+    try:
+        decoded = RPC.decoderawtransaction(raw_tx)
+        if isinstance(decoded, dict) and decoded.get('txid'):
+            return str(decoded['txid'])
+    except Exception:
+        pass
+    return f'temp-{uuid.uuid4()}'
 
 def testnet_home(request):
     """Display testnet home page with overview"""
@@ -370,6 +459,13 @@ def accept_swap_offer(request, offer_id):
             if swap_offer.expires_at < timezone.now():
                 swap_offer.status = 'expired'
                 swap_offer.save(update_fields=['status', 'updated_at'])
+                record_atomic_swap_stage_event(
+                    swap_offer,
+                    stage='swap_expired',
+                    actor_username=request.user.username,
+                    actor_user=request.user,
+                    details={'reason': 'offer_expired_before_acceptance'},
+                )
                 messages.error(request, 'This atomic swap has expired.')
                 return redirect('available_swap_offers')
 
@@ -381,22 +477,111 @@ def accept_swap_offer(request, offer_id):
                 messages.error(request, 'You cannot accept your own atomic swap.')
                 return redirect('available_swap_offers')
 
-            if swap_offer.request_token != 'EVR':
-                messages.error(request, 'Atomic settlement currently supports asset-for-EVR swaps only.')
+            if get_active_atomic_swap_policy(
+                current_network,
+                required_stages=ATOMIC_SWAP_REQUIRED_STAGES,
+            ) is None:
+                messages.error(request, 'Atomic swaps require a verified active messaging channel for settlement events.')
+                return redirect('available_swap_offers')
+
+            if (
+                classify_asset_type(swap_offer.offer_token) != TrackedAsset.ASSET_TYPE_UNIQUE
+                or swap_offer.offer_amount != Decimal('1')
+            ):
+                messages.error(request, 'Atomic swaps only support one unique asset (NFT) on the offered side.')
+                return redirect('available_swap_offers')
+
+            seller_available = _get_available_token_amount(
+                swap_offer.initiator,
+                swap_offer.offer_token,
+                current_network,
+                exclude_offer_id=swap_offer.id,
+            )
+            if seller_available < swap_offer.offer_amount:
+                messages.error(request, 'Swap initiator does not have enough unlocked asset balance for settlement.')
+                return redirect('available_swap_offers')
+
+            try:
+                normalized_offer_amount = _normalize_swap_amount_for_asset(
+                    swap_offer.offer_token,
+                    swap_offer.offer_amount,
+                    current_network,
+                )
+                normalized_request_amount = _normalize_swap_amount_for_asset(
+                    swap_offer.request_token,
+                    swap_offer.request_amount,
+                    current_network,
+                )
+            except ValueError as exc:
+                messages.error(request, str(exc))
+                return redirect('available_swap_offers')
+
+            buyer_available_settlement = _get_available_token_amount(
+                request.user,
+                swap_offer.request_token,
+                current_network,
+                exclude_offer_id=swap_offer.id,
+            )
+            if buyer_available_settlement < normalized_request_amount:
+                messages.error(request, f'You do not have enough unlocked {swap_offer.request_token} balance for this swap.')
                 return redirect('available_swap_offers')
 
             original_counterparty_id = swap_offer.counterparty_id
+            SwapFundingLock.objects.create(
+                swap_offer=swap_offer,
+                user=swap_offer.initiator,
+                token_symbol=swap_offer.offer_token.upper(),
+                amount=normalized_offer_amount,
+                status='locked',
+            )
+            SwapFundingLock.objects.create(
+                swap_offer=swap_offer,
+                user=request.user,
+                token_symbol=swap_offer.request_token.upper(),
+                amount=normalized_request_amount,
+                status='locked',
+            )
             swap_offer.counterparty = request.user
             swap_offer.status = 'settling'
             swap_offer.settlement_error = ''
             swap_offer.settlement_started_at = timezone.now()
+            swap_offer.settlement_temp_txid = ''
             swap_offer.save(update_fields=[
                 'counterparty',
                 'status',
                 'settlement_error',
                 'settlement_started_at',
+                'settlement_temp_txid',
                 'updated_at',
             ])
+            channel_message = record_atomic_swap_stage_event(
+                swap_offer,
+                stage='settlement_lock_created',
+                actor_username=request.user.username,
+                actor_user=request.user,
+                details={
+                    'seller_lock_amount': str(normalized_offer_amount),
+                    'buyer_lock_amount': str(normalized_request_amount),
+                },
+            )
+            if channel_message.status != 'broadcasted':
+                swap_offer.status = 'pending'
+                swap_offer.counterparty_id = original_counterparty_id
+                swap_offer.settlement_error = (
+                    channel_message.error_message
+                    or 'The atomic swap messaging channel could not publish settlement_lock_created.'
+                )
+                swap_offer.settlement_started_at = None
+                swap_offer.save(update_fields=[
+                    'counterparty',
+                    'status',
+                    'settlement_error',
+                    'settlement_started_at',
+                    'updated_at',
+                ])
+                SwapFundingLock.objects.filter(swap_offer=swap_offer, status='locked').delete()
+                messages.error(request, swap_offer.settlement_error)
+                return redirect('available_swap_offers')
 
         try:
             seller_address = _get_user_primary_address(swap_offer.initiator)
@@ -406,13 +591,23 @@ def accept_swap_offer(request, offer_id):
 
             seller_wif = _derive_user_wif_for_address(swap_offer.initiator, seller_address)
             buyer_wif = _derive_user_wif_for_address(request.user, buyer_address)
-            tx_data = create_raw_atomic_asset_evr_swap_transaction(
-                seller_address=seller_address,
-                buyer_address=buyer_address,
-                asset_name=swap_offer.offer_token,
-                asset_quantity=swap_offer.offer_amount,
-                payment_evr=swap_offer.request_amount,
-            )
+            if swap_offer.request_token.upper() == 'EVR':
+                tx_data = create_raw_atomic_asset_evr_swap_transaction(
+                    seller_address=seller_address,
+                    buyer_address=buyer_address,
+                    asset_name=swap_offer.offer_token,
+                    asset_quantity=normalized_offer_amount,
+                    payment_evr=normalized_request_amount,
+                )
+            else:
+                tx_data = create_raw_atomic_asset_asset_swap_transaction(
+                    seller_address=seller_address,
+                    buyer_address=buyer_address,
+                    seller_asset_name=swap_offer.offer_token,
+                    seller_asset_quantity=normalized_offer_amount,
+                    buyer_asset_name=swap_offer.request_token,
+                    buyer_asset_quantity=normalized_request_amount,
+                )
         except Exception as exc:
             with transaction.atomic():
                 failed_offer = SwapOffer.objects.select_for_update().get(
@@ -423,9 +618,28 @@ def accept_swap_offer(request, offer_id):
                     failed_offer.status = 'pending'
                     failed_offer.counterparty_id = original_counterparty_id
                     failed_offer.settlement_error = str(exc)
-                    failed_offer.save(update_fields=['status', 'counterparty', 'settlement_error', 'updated_at'])
+                    failed_offer.settlement_temp_txid = ''
+                    failed_offer.save(update_fields=['status', 'counterparty', 'settlement_error', 'settlement_temp_txid', 'updated_at'])
+                    _release_offer_funding_locks(failed_offer)
+                    record_atomic_swap_stage_event(
+                        failed_offer,
+                        stage='settlement_build_failed',
+                        actor_username=request.user.username,
+                        actor_user=request.user,
+                        details={'error': str(exc)},
+                    )
             messages.error(request, f'Unable to build the atomic swap transaction: {str(exc)}')
             return redirect('available_swap_offers')
+
+        temp_txid = _derive_temp_txid(tx_data['raw_tx'])
+        with transaction.atomic():
+            settling_offer = SwapOffer.objects.select_for_update().get(
+                id=offer_id,
+                network_mode=current_network,
+            )
+            if settling_offer.status == 'settling':
+                settling_offer.settlement_temp_txid = temp_txid
+                settling_offer.save(update_fields=['settlement_temp_txid', 'updated_at'])
 
         try:
             txid = sign_and_broadcast_raw_transaction(
@@ -443,6 +657,14 @@ def accept_swap_offer(request, offer_id):
                         f'Broadcast outcome requires reconciliation before retrying: {str(exc)}'
                     )
                     failed_offer.save(update_fields=['settlement_error', 'updated_at'])
+                    record_atomic_swap_stage_event(
+                        failed_offer,
+                        stage='settlement_pending_reconciliation',
+                        actor_username=request.user.username,
+                        actor_user=request.user,
+                        txid=failed_offer.settlement_temp_txid,
+                        details={'error': str(exc)},
+                    )
             messages.error(request, 'The atomic swap broadcast needs reconciliation before it can be retried.')
             return redirect('available_swap_offers')
 
@@ -459,6 +681,7 @@ def accept_swap_offer(request, offer_id):
             settled_offer.settlement_txid = txid
             settled_offer.settlement_error = ''
             settled_offer.save(update_fields=['status', 'settlement_txid', 'settlement_error', 'updated_at'])
+            _consume_offer_funding_locks(settled_offer)
             P2PSwapTransaction.objects.create(
                 swap_offer=settled_offer,
                 initiator=settled_offer.initiator,
@@ -468,6 +691,14 @@ def accept_swap_offer(request, offer_id):
                 counterparty_token=settled_offer.request_token,
                 counterparty_amount=settled_offer.request_amount,
                 tx_hash=txid,
+            )
+            record_atomic_swap_stage_event(
+                settled_offer,
+                stage='settlement_broadcasted',
+                actor_username=request.user.username,
+                actor_user=request.user,
+                txid=txid,
+                details={'status': 'completed'},
             )
 
         messages.success(
@@ -483,22 +714,46 @@ def accept_swap_offer(request, offer_id):
 
 @login_required
 def cancel_swap_offer(request, offer_id):
-    """Cancel a pending atomic swap."""
+    """Allow the creator to manually remove a cancellable atomic swap."""
     swap_offer = get_object_or_404(
         SwapOffer,
         id=offer_id,
         initiator=request.user,
         network_mode=get_current_network_mode(),
     )
-    
-    if swap_offer.status != 'pending':
-        messages.error(request, 'Only pending atomic swaps can be cancelled.')
+
+    removable_statuses = {'pending', 'settling', 'accepted'}
+    if swap_offer.status not in removable_statuses:
+        messages.error(request, 'This swap can no longer be removed.')
         return redirect('my_swap_offers')
-    
+
     if request.method == 'POST':
-        swap_offer.status = 'cancelled'
-        swap_offer.save()
-        messages.success(request, 'Atomic swap cancelled successfully.')
+        with transaction.atomic():
+            swap_offer = SwapOffer.objects.select_for_update().get(
+                id=offer_id,
+                initiator=request.user,
+                network_mode=get_current_network_mode(),
+            )
+            if swap_offer.status not in removable_statuses:
+                messages.error(request, 'This swap can no longer be removed.')
+                return redirect('my_swap_offers')
+
+            swap_offer.status = 'cancelled'
+            swap_offer.settlement_error = (
+                f'{swap_offer.settlement_error}\nCreator manually removed this swap.'
+                if swap_offer.settlement_error else 'Creator manually removed this swap.'
+            )
+            swap_offer.save(update_fields=['status', 'settlement_error', 'updated_at'])
+            _release_offer_funding_locks(swap_offer)
+            record_atomic_swap_stage_event(
+                swap_offer,
+                stage='swap_cancelled',
+                actor_username=request.user.username,
+                actor_user=request.user,
+                details={'reason': 'initiator_cancelled_swap'},
+            )
+
+        messages.success(request, 'Atomic swap removed and all settlement locks released.')
         return redirect('my_swap_offers')
     
     context = {
@@ -509,6 +764,7 @@ def cancel_swap_offer(request, offer_id):
 @login_required
 def my_swap_offers(request):
     """Display a user's created atomic swaps."""
+    purge_expired_swap_offers(network_mode=get_current_network_mode())
     offers = SwapOffer.objects.filter(
         initiator=request.user,
         network_mode=get_current_network_mode(),
@@ -523,6 +779,7 @@ def my_swap_offers(request):
 def available_swap_offers(request):
     """Display atomic swaps available to the user."""
     current_network = get_current_network_mode()
+    purge_expired_swap_offers(network_mode=current_network)
 
     # Show atomic swaps that are:
     # 1. Pending

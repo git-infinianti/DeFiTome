@@ -92,6 +92,88 @@ class WalletProfile(models.Model):
         return f"WalletProfile(name={self.name}, address={self.address.address}, main={self.is_main})"
 
 
+class WalletPreferences(models.Model):
+    TAB_SEND = 'send'
+    TAB_RECEIVE = 'receive'
+    TAB_PROFILES = 'profiles'
+    TAB_CHOICES = [
+        (TAB_SEND, 'Send'),
+        (TAB_RECEIVE, 'Receive'),
+        (TAB_PROFILES, 'Profiles'),
+    ]
+
+    TRANSACTION_LIMIT_ALL = 'all'
+    TRANSACTION_LIMIT_CHOICES = [
+        (TRANSACTION_LIMIT_ALL, 'All'),
+        ('25', 'Latest 25'),
+        ('50', 'Latest 50'),
+        ('100', 'Latest 100'),
+        ('250', 'Latest 250'),
+    ]
+
+    SEND_CONFIRMATION_CHOICES = [
+        ('always', 'Always'),
+        ('warn', 'Warn for large sends'),
+        ('off', 'Disabled'),
+    ]
+
+    QR_STYLE_CHOICES = [
+        ('classic', 'Classic'),
+        ('high_contrast', 'High Contrast'),
+        ('minimal', 'Minimal'),
+    ]
+
+    ADDRESS_LABEL_CHOICES = [
+        ('full', 'Full Address'),
+        ('short', 'Short Label'),
+        ('masked', 'Masked Address'),
+    ]
+
+    PROFILE_SORT_CHOICES = [
+        ('main_first', 'Main Profile First'),
+        ('name_asc', 'Name A to Z'),
+        ('name_desc', 'Name Z to A'),
+        ('index_asc', 'Index Low to High'),
+        ('index_desc', 'Index High to Low'),
+    ]
+
+    wallet = models.OneToOneField(UserWallet, on_delete=models.CASCADE, related_name='preferences')
+    default_home_tab = models.CharField(max_length=20, choices=TAB_CHOICES, default=TAB_SEND)
+    default_send_currency = models.CharField(max_length=64, default='EVR')
+    default_transaction_limit = models.CharField(max_length=10, choices=TRANSACTION_LIMIT_CHOICES, default=TRANSACTION_LIMIT_ALL)
+    default_confirmation_behavior = models.CharField(max_length=20, choices=SEND_CONFIRMATION_CHOICES, default='always')
+    default_receive_qr_style = models.CharField(max_length=20, choices=QR_STYLE_CHOICES, default='classic')
+    address_label_style = models.CharField(max_length=20, choices=ADDRESS_LABEL_CHOICES, default='full')
+    profile_sort_order = models.CharField(max_length=20, choices=PROFILE_SORT_CHOICES, default='main_first')
+    auto_sync_balance = models.BooleanField(default=True)
+    auto_validate_recipient = models.BooleanField(default=True)
+    auto_copy_receive_address = models.BooleanField(default=False)
+    show_receive_qr = models.BooleanField(default=True)
+    show_zero_balances = models.BooleanField(default=True)
+    show_change_addresses = models.BooleanField(default=False)
+    show_profile_network_badges = models.BooleanField(default=True)
+    highlight_main_profile = models.BooleanField(default=True)
+    hide_balance_on_open = models.BooleanField(default=False)
+    compact_cards = models.BooleanField(default=False)
+    confirm_external_links = models.BooleanField(default=True)
+    enable_address_tooltips = models.BooleanField(default=True)
+    prefer_main_profile_on_receive = models.BooleanField(default=True)
+    nft_image_uri_template = models.CharField(
+        max_length=255,
+        default='ipfs://{cid}/{filename}',
+        help_text='Template for generated NFT image URIs. Use {cid} and {filename}.',
+    )
+    transaction_refresh_seconds = models.PositiveIntegerField(default=30)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = 'Wallet Preferences'
+
+    def __str__(self):
+        return f"WalletPreferences(wallet_id={self.wallet_id}, home_tab={self.default_home_tab}, currency={self.default_send_currency})"
+
+
 class TrackedAsset(models.Model):
     NETWORK_MODE_MAINNET = 'mainnet'
     NETWORK_MODE_TESTNET = 'testnet'
@@ -160,6 +242,55 @@ class TrackedAssetHolding(models.Model):
 
     def __str__(self):
         return f"TrackedAssetHolding(asset={self.asset.symbol}, user_id={self.user_id}, qty={self.quantity})"
+
+
+class AssetCreationRequest(models.Model):
+    KIND_MAIN = 'main'
+    KIND_SUB = 'sub'
+    KIND_UNIQUE = 'unique'
+    KIND_MESSAGING = 'messaging_channel'
+    KIND_QUALIFIER = 'qualifier'
+    KIND_SUB_QUALIFIER = 'sub_qualifier'
+    KIND_RESTRICTED = 'restricted'
+    KIND_CHOICES = (
+        (KIND_MAIN, 'Main Asset'),
+        (KIND_SUB, 'Sub Asset'),
+        (KIND_UNIQUE, 'Unique Asset'),
+        (KIND_MESSAGING, 'Messaging Channel'),
+        (KIND_QUALIFIER, 'Qualifier'),
+        (KIND_SUB_QUALIFIER, 'Sub Qualifier'),
+        (KIND_RESTRICTED, 'Restricted Asset'),
+    )
+
+    STATUS_PENDING = 'pending'
+    STATUS_ACCEPTED = 'accepted'
+    STATUS_BROADCAST = 'broadcast'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = (
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_ACCEPTED, 'Mempool Accepted'),
+        (STATUS_BROADCAST, 'Broadcast'),
+        (STATUS_FAILED, 'Failed'),
+    )
+
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='asset_creation_requests')
+    network_mode = models.CharField(max_length=10, choices=TrackedAsset.NETWORK_MODE_CHOICES, default='testnet')
+    asset_kind = models.CharField(max_length=32, choices=KIND_CHOICES)
+    asset_name = models.CharField(max_length=255)
+    source_address = models.CharField(max_length=100)
+    parameters = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    mempool_txid = models.CharField(max_length=64, blank=True, default='')
+    broadcast_txid = models.CharField(max_length=64, blank=True, default='')
+    error_message = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+
+    def __str__(self):
+        return f'AssetCreationRequest(asset={self.asset_name}, status={self.status})'
 
 
 class SafeTradeCredentials(models.Model):

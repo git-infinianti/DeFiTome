@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeFi Tome - Wallet Preferences</title>
+    <style>
+        :root, .theme-dark, .theme- {
+            --bg-gradient-start: #0f172a;
+            --bg-gradient-end: #111827;
+            --text-primary: #e2e8f0;
+            --text-secondary: #cbd5e1;
+            --text-muted: #94a3b8;
+            --border-color: rgba(148, 163, 184, 0.2);
+            --card-bg: rgba(15, 23, 42, 0.82);
+            --card-bg-hover: rgba(59, 130, 246, 0.06);
+            --accent-primary: #38bdf8;
+            --accent-secondary: #22c55e;
+            --accent-light: #7dd3fc;
+            --accent-purple: #a78bfa;
+            --input-bg: rgba(15, 23, 42, 0.5);
+            --input-focus-bg: rgba(15, 23, 42, 0.75);
+            --error-bg: rgba(239, 68, 68, 0.1);
+            --error-text: #fca5a5;
+            --success-bg: rgba(34, 197, 94, 0.1);
+            --success-text: #bbf7d0;
+            --alert-border: rgba(56, 189, 248, 0.25);
+            --warning-bg: rgba(245, 158, 11, 0.1);
+            --warning-border: rgba(245, 158, 11, 0.28);
+            --warning-text: #fcd34d;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: radial-gradient(circle at top, rgba(56, 189, 248, 0.12), transparent 30%), linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .brand {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        .brand h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, var(--accent-light), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand p {
+            color: var(--text-muted);
+        }
+
+        .top-actions a {
+            color: var(--text-primary);
+            text-decoration: none;
+            padding: 0.8rem 1.1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.04);
+            transition: transform 0.2s, border-color 0.2s, background 0.2s;
+        }
+
+        .top-actions a:hover {
+            transform: translateY(-1px);
+            border-color: rgba(56, 189, 248, 0.45);
+            background: rgba(56, 189, 248, 0.08);
+        }
+
+        .alert {
+            border-radius: 12px;
+            padding: 1rem 1.1rem;
+            margin-bottom: 1rem;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            background: var(--error-bg);
+            color: var(--error-text);
+        }
+
+        .alert-success {
+            border-color: rgba(34, 197, 94, 0.3);
+            background: var(--success-bg);
+            color: var(--success-text);
+        }
+
+        .alert-icon {
+            margin-right: 0.5rem;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .summary-card,
+        .panel,
+        .section {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 18px;
+            box-shadow: 0 18px 35px rgba(2, 6, 23, 0.3);
+        }
+
+        .summary-card {
+            padding: 1.1rem 1.2rem;
+        }
+
+        .summary-card .label {
+            color: var(--text-muted);
+            font-size: 0.88rem;
+            margin-bottom: 0.35rem;
+        }
+
+        .summary-card .value {
+            font-size: 1.05rem;
+            font-weight: 700;
+        }
+
+        .panel {
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .section {
+            padding: 1.35rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .section h2 {
+            font-size: 1.25rem;
+            color: var(--accent-light);
+            margin-bottom: 0.8rem;
+        }
+
+        .section p.desc {
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+            line-height: 1.55;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .form-group.full {
+            grid-column: 1 / -1;
+        }
+
+        label {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        small {
+            color: var(--text-muted);
+        }
+
+        input[type="text"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 0.92rem 1rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: var(--input-bg);
+            color: var(--text-primary);
+            outline: none;
+            transition: border-color 0.2s, background 0.2s, transform 0.2s;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        select:focus {
+            border-color: rgba(56, 189, 248, 0.6);
+            background: var(--input-focus-bg);
+        }
+
+        .toggle-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.75rem;
+        }
+
+        .toggle {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.95rem 1rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .toggle input {
+            margin-top: 0.25rem;
+        }
+
+        .toggle .toggle-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+        }
+
+        .toggle .toggle-copy span {
+            font-weight: 600;
+        }
+
+        .footer-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.9rem 1.25rem;
+            border-radius: 12px;
+            border: 0;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            color: white;
+            text-decoration: none;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .btn:hover,
+        .btn-secondary:hover {
+            transform: translateY(-1px);
+        }
+
+        .hint-list {
+            margin-top: 0.75rem;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.75rem;
+        }
+
+        .hint-item {
+            padding: 0.9rem 1rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-secondary);
+            font-size: 0.92rem;
+        }
+
+        @media (max-width: 960px) {
+            .summary-grid,
+            .grid,
+            .toggle-grid,
+            .hint-list {
+                grid-template-columns: 1fr;
+            }
+
+            .topbar,
+            .footer-actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+    </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
+</head>
+<body class="theme-{{ user_theme }}">
+    <div class="container">
+        <div class="topbar">
+            <div class="brand">
+                <h1>Wallet Preferences</h1>
+                <p>Configure how your wallet behaves across send, receive, and transaction screens.</p>
+            </div>
+            <div class="top-actions">
+                <a href="{% url 'send_funds' %}">Open Send & Receive</a>
+            </div>
+        </div>
+
+        {% if messages %}
+            {% for message in messages %}
+            <div class="alert{% if message.tags == 'success' %} alert-success{% endif %}">
+                <span class="alert-icon">{% if message.tags == 'success' %}✅{% else %}⚠️{% endif %}</span>
+                {{ message }}
+            </div>
+            {% endfor %}
+        {% endif %}
+
+        <div class="summary-grid">
+            <div class="summary-card">
+                <div class="label">Default Home Tab</div>
+                <div class="value">{{ preferences.default_home_tab|title }}</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Default Send Currency</div>
+                <div class="value">{{ preferences.default_send_currency }}</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Transaction Limit</div>
+                <div class="value">{{ preferences.get_default_transaction_limit_display }}</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Refresh Interval</div>
+                <div class="value">{{ preferences.transaction_refresh_seconds }}s</div>
+            </div>
+        </div>
+
+        <form method="post" action="{% url 'wallet_preferences' %}">
+            {% csrf_token %}
+
+            <div class="section">
+                <h2>Behavior</h2>
+                <p class="desc">These settings control the default tab, transaction depth, and confirmation posture.</p>
+                <div class="grid">
+                    <div class="form-group">
+                        <label for="default_home_tab">Default Home Tab</label>
+                        <select id="default_home_tab" name="default_home_tab">
+                            {% for value, label in tab_options %}
+                            <option value="{{ value }}" {% if preferences.default_home_tab == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="default_transaction_limit">Default Transaction Limit</label>
+                        <select id="default_transaction_limit" name="default_transaction_limit">
+                            {% for value, label in transaction_limit_options %}
+                            <option value="{{ value }}" {% if preferences.default_transaction_limit == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="default_confirmation_behavior">Send Confirmation Behavior</label>
+                        <select id="default_confirmation_behavior" name="default_confirmation_behavior">
+                            {% for value, label in confirmation_options %}
+                            <option value="{{ value }}" {% if preferences.default_confirmation_behavior == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="transaction_refresh_seconds">Transaction Refresh Seconds</label>
+                        <input type="number" id="transaction_refresh_seconds" name="transaction_refresh_seconds" min="5" max="300" value="{{ preferences.transaction_refresh_seconds }}">
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Send Defaults</h2>
+                <p class="desc">These options shape the send form and recipient validation workflow.</p>
+                <div class="grid">
+                    <div class="form-group">
+                        <label for="default_send_currency">Default Send Currency</label>
+                        <input type="text" id="default_send_currency" name="default_send_currency" value="{{ preferences.default_send_currency }}" placeholder="EVR or an asset symbol">
+                    </div>
+                    <div class="form-group">
+                        <label for="default_receive_qr_style">Receive QR Style</label>
+                        <select id="default_receive_qr_style" name="default_receive_qr_style">
+                            {% for value, label in qr_style_options %}
+                            <option value="{{ value }}" {% if preferences.default_receive_qr_style == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="address_label_style">Address Label Style</label>
+                        <select id="address_label_style" name="address_label_style">
+                            {% for value, label in address_label_options %}
+                            <option value="{{ value }}" {% if preferences.address_label_style == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="profile_sort_order">Profile Sort Order</label>
+                        <select id="profile_sort_order" name="profile_sort_order">
+                            {% for value, label in profile_sort_options %}
+                            <option value="{{ value }}" {% if preferences.profile_sort_order == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group full">
+                        <label for="nft_image_uri_template">NFT Image URI Template</label>
+                        <input type="text" id="nft_image_uri_template" name="nft_image_uri_template" value="{{ preferences.nft_image_uri_template }}" placeholder="ipfs://{cid}/{filename}">
+                        <small>Used when generating URI from uploaded NFT image files. Must include {cid} and {filename}.</small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Display and Privacy</h2>
+                <p class="desc">Tune how much wallet data is shown by default.</p>
+                <div class="toggle-grid">
+                    <label class="toggle">
+                        <input type="checkbox" name="show_receive_qr" {% if preferences.show_receive_qr %}checked{% endif %}>
+                        <span class="toggle-copy"><span>Show Receive QR</span><small>Display the QR image on receive screens.</small></span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" name="auto_copy_receive_address" {% if preferences.auto_copy_receive_address %}checked{% endif %}>
+                        <span class="toggle-copy"><span>Auto Copy Receive Address</span><small>Copy the active receive address when the receive view opens.</small></span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" name="show_zero_balances" {% if preferences.show_zero_balances %}checked{% endif %}>
+                        <span class="toggle-copy"><span>Show Zero Balances</span><small>Keep empty balances visible in wallet tables.</small></span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" name="show_change_addresses" {% if preferences.show_change_addresses %}checked{% endif %}>
+                        <span class="toggle-copy"><span>Show Change Addresses</span><small>Include change-chain addresses in address lists.</small></span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" name="show_profile_network_badges" {% if preferences.show_profile_network_badges %}checked{% endif %}>
+                        <span class="toggle-copy"><span>Show Profile Network Badges</span><small>Tag profiles with the active network.</small></span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" name="highlight_main_profile" {% if preferences.highlight_main_profile %}checked{% endif %}>
+                        <span class="toggle-copy"><span>Highlight Main Profile</span><small>Surface the selected main profile more aggressively.</small></span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" name="hide_balance_on_open" {% if preferences.hide_balance_on_open %}checked{% endif %}>
+                        <span class="toggle-copy"><span>Hide Balance On Open</span><small>Mask balances until the page is explicitly used.</small></span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" name="compact_cards" {% if preferences.compact_cards %}checked{% endif %}>
+                        <span class="toggle-copy"><span>Compact Cards</span><small>Reduce padding in wallet cards for dense layouts.</small></span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" name="confirm_external_links" {% if preferences.confirm_external_links %}checked{% endif %}>
+                        <span class="toggle-copy"><span>Confirm External Links</span><small>Add a warning before leaving the wallet area.</small></span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" name="enable_address_tooltips" {% if preferences.enable_address_tooltips %}checked{% endif %}>
+                        <span class="toggle-copy"><span>Enable Address Tooltips</span><small>Show extra address context on hover.</small></span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" name="prefer_main_profile_on_receive" {% if preferences.prefer_main_profile_on_receive %}checked{% endif %}>
+                        <span class="toggle-copy"><span>Prefer Main Profile On Receive</span><small>Keep the main profile at the front of receive flows.</small></span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" name="auto_sync_balance" {% if preferences.auto_sync_balance %}checked{% endif %}>
+                        <span class="toggle-copy"><span>Auto Sync Balance</span><small>Refresh the EVR balance from RPC when opening send screens.</small></span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" name="auto_validate_recipient" {% if preferences.auto_validate_recipient %}checked{% endif %}>
+                        <span class="toggle-copy"><span>Auto Validate Recipient</span><small>Validate recipient addresses while typing.</small></span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Quick Notes</h2>
+                <p class="desc">Useful defaults are reflected immediately across the wallet UI after save.</p>
+                <div class="hint-list">
+                    <div class="hint-item">Send defaults can influence the active currency selection and confirmation posture.</div>
+                    <div class="hint-item">Receive defaults can suppress QR rendering or change how addresses are displayed.</div>
+                    <div class="hint-item">Profile ordering affects how wallet profiles appear on the send and receive management tabs.</div>
+                </div>
+            </div>
+
+            <div class="footer-actions">
+                <a href="{% url 'portfolio' %}" class="btn btn-secondary">Back to Wallet</a>
+                <button type="submit" class="btn">Save Preferences</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

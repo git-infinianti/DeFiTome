@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -266,6 +267,7 @@
             color: var(--text-muted);
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -312,7 +314,7 @@
                         <option value="{{ pool.id }}" 
                                 data-supply-rate="{{ pool.current_supply_rate }}"
                                 data-utilization="{{ pool.utilization_rate }}">
-                            {{ pool.token_symbol }} - {{ pool.current_supply_rate|floatformat:2 }}% APR
+                            {{ pool.token_symbol|market_symbol }} - {{ pool.current_supply_rate|floatformat:2 }}% APR
                         </option>
                         {% endfor %}
                     </select>
@@ -339,7 +341,7 @@
             <div class="pools-grid">
                 {% for deposit in user_deposits %}
                 <div class="pool-card">
-                    <h3>{{ deposit.pool.token_symbol }}</h3>
+                    <h3 title="{{ deposit.pool.token_symbol|asset_tooltip }}">{{ deposit.pool.token_symbol|market_symbol }}</h3>
                     <div class="pool-info">
                         <label>Principal:</label>
                         <span>{{ deposit.principal_amount }}</span>

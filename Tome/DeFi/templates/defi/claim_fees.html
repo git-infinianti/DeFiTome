@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -224,6 +225,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -253,7 +255,7 @@
         {% if user_positions %}
             {% for position in user_positions %}
             <div class="fee-card">
-                <h3>{{ position.pool.token_a_symbol }}/{{ position.pool.token_b_symbol }} Pool</h3>
+                <h3><span title="{{ position.pool.token_a_symbol|asset_tooltip }}">{{ position.pool.token_a_symbol|market_symbol }}</span>/<span title="{{ position.pool.token_b_symbol|asset_tooltip }}">{{ position.pool.token_b_symbol|market_symbol }}</span> Pool</h3>
                 
                 <div class="fee-info">
                     <label>Your Liquidity Tokens:</label>
@@ -266,12 +268,12 @@
                 </div>
                 
                 <div class="fee-info">
-                    <label>Unclaimed {{ position.pool.token_a_symbol }} Fees:</label>
+                    <label>Unclaimed <span title="{{ position.pool.token_a_symbol|asset_tooltip }}">{{ position.pool.token_a_symbol|market_symbol }}</span> Fees:</label>
                     <span class="fee-amount">{{ position.unclaimed_token_a_fees }}</span>
                 </div>
                 
                 <div class="fee-info">
-                    <label>Unclaimed {{ position.pool.token_b_symbol }} Fees:</label>
+                    <label>Unclaimed <span title="{{ position.pool.token_b_symbol|asset_tooltip }}">{{ position.pool.token_b_symbol|market_symbol }}</span> Fees:</label>
                     <span class="fee-amount">{{ position.unclaimed_token_b_fees }}</span>
                 </div>
                 

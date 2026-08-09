@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.views.decorators.http import require_http_methods, require_POST
 import json
+import mimetypes
 
 from .address_metadata import (
     AddressMetadataTagError,
@@ -13,6 +14,7 @@ from .address_metadata import (
     verify_stored_address_metadata_tag,
 )
 from .models import AddressMetadataTag, IPFSUpload
+from .kubo_api import KuboAPIUploader
 from Tome.qr import build_qr_data_uri
 from Wallet.rip10 import (
     RIP10ValidationError,
@@ -73,29 +75,27 @@ def media_upload(request):
             return render(request, 'media/upload.html')
         
         try:
-            # Create IPFSUpload instance
-            upload = IPFSUpload.objects.create(
-                user=request.user,
-                file_stored_on_ipfs=uploaded_file
+            upload_result = KuboAPIUploader().upload_fileobj(
+                uploaded_file,
+                file_name=uploaded_file.name,
+                pin=True,
+                cid_version=0,
             )
-            
-            # Try to upload to IPFS
-            ipfs_hash = upload.upload_to_ipfs()
-            
-            if ipfs_hash:
-                messages.success(request, f'File uploaded successfully! IPFS Hash: {ipfs_hash}')
-                return render(
-                    request,
-                    'media/upload.html',
-                    {
-                        'uploaded_cid': ipfs_hash,
-                        'uploaded_cid_qr_data_uri': build_qr_data_uri(ipfs_hash),
-                    },
-                )
-            else:
-                messages.warning(request, 'File saved but IPFS upload failed. Make sure IPFS daemon is running.')
-            
-            return redirect('media_list')
+            IPFSUpload.objects.create(
+                user=request.user,
+                original_filename=upload_result.name,
+                ipfs_hash=upload_result.cid,
+            )
+
+            messages.success(request, f'File uploaded successfully! IPFS CID: {upload_result.cid}')
+            return render(
+                request,
+                'media/upload.html',
+                {
+                    'uploaded_cid': upload_result.cid,
+                    'uploaded_cid_qr_data_uri': build_qr_data_uri(upload_result.cid),
+                },
+            )
         except Exception as e:
             messages.error(request, f'Error uploading file: {str(e)}')
             return render(request, 'media/upload.html')
@@ -106,20 +106,12 @@ def media_upload(request):
 @login_required
 @require_http_methods(["GET", "POST"])
 def media_edit(request, pk):
-    """Edit media metadata (mainly to re-upload to IPFS if needed)"""
+    """Show media metadata. Local file re-upload is disabled for IPFS-only storage."""
     upload = get_object_or_404(IPFSUpload, pk=pk, user=request.user)
     
     if request.method == 'POST':
-        # Try to re-upload to IPFS
-        try:
-            ipfs_hash = upload.upload_to_ipfs()
-            if ipfs_hash:
-                messages.success(request, f'File re-uploaded to IPFS successfully! Hash: {ipfs_hash}')
-            else:
-                messages.warning(request, 'IPFS upload failed. Make sure IPFS daemon is running.')
-            return redirect('media_list')
-        except Exception as e:
-            messages.error(request, f'Error re-uploading to IPFS: {str(e)}')
+        messages.info(request, 'Re-upload is disabled. Media files are stored on IPFS only.')
+        return redirect('media_edit', pk=upload.pk)
     
     context = {
         'upload': upload,
@@ -136,7 +128,7 @@ def media_delete(request, pk):
     if request.method == 'POST':
         # Get details before deletion
         ipfs_hash = upload.ipfs_hash
-        file_name = upload.file_stored_on_ipfs.name if upload.file_stored_on_ipfs else 'Unknown'
+        file_name = upload.display_filename
         
         try:
             # Try to unpin from IPFS if hash exists
@@ -160,6 +152,57 @@ def media_delete(request, pk):
         'upload': upload,
     }
     return render(request, 'media/delete.html', context)
+
+
+@login_required
+def media_preview(request, pk):
+    """Render an inline preview page for a stored IPFS media item."""
+    upload = get_object_or_404(IPFSUpload, pk=pk, user=request.user)
+
+    context = {
+        'upload': upload,
+        'ipfs_uri_qr_data_uri': build_qr_data_uri(upload.ipfs_uri),
+        'preview_type': 'unavailable',
+        'preview_text': '',
+        'preview_data_uri': '',
+        'mime_type': '',
+    }
+
+    if not upload.ipfs_hash:
+        return render(request, 'media/preview.html', context)
+
+    try:
+        content = KuboAPIUploader().download_bytes(upload.ipfs_hash, max_bytes=2_000_000)
+    except Exception as exc:
+        context['preview_text'] = f'Unable to load IPFS content: {str(exc)}'
+        return render(request, 'media/preview.html', context)
+
+    mime_type, _ = mimetypes.guess_type(upload.display_filename)
+    mime_type = mime_type or 'application/octet-stream'
+    context['mime_type'] = mime_type
+
+    if mime_type.startswith('image/'):
+        import base64
+
+        encoded = base64.b64encode(content).decode('ascii')
+        context['preview_type'] = 'image'
+        context['preview_data_uri'] = f'data:{mime_type};base64,{encoded}'
+        return render(request, 'media/preview.html', context)
+
+    if mime_type.startswith('text/') or upload.display_filename.lower().endswith('.json'):
+        context['preview_type'] = 'text'
+        try:
+            context['preview_text'] = content.decode('utf-8')
+        except UnicodeDecodeError:
+            context['preview_text'] = 'This file is not UTF-8 text and cannot be previewed as text.'
+        return render(request, 'media/preview.html', context)
+
+    context['preview_type'] = 'binary'
+    context['preview_text'] = (
+        'Binary file preview is not supported inline. '
+        f'Use CID {upload.ipfs_hash} and filename {upload.display_filename} to fetch this file from IPFS.'
+    )
+    return render(request, 'media/preview.html', context)
 
 
 @login_required

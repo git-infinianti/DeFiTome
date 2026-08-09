@@ -1,3 +1,5 @@
+import hashlib
+
 from django.db import models
 
 # Create your models here.
@@ -92,15 +94,28 @@ class ListingOrder(models.Model):
 
 # Order Book DEX Models
 class TradingPair(models.Model):
-    """Trading pair for order book (e.g., BTC/USDT)"""
+    """Native Evrmore asset pair traded through the market order book."""
     NETWORK_MODE_CHOICES = [
         ('testnet', 'Testnet'),
         ('mainnet', 'Mainnet'),
     ]
+    INSTRUMENT_TOKEN = 'token'
+    INSTRUMENT_SECURITY_CAPABLE = 'security_capable'
+    INSTRUMENT_TYPE_CHOICES = [
+        (INSTRUMENT_TOKEN, 'Token'),
+        (INSTRUMENT_SECURITY_CAPABLE, 'Restricted / Security-capable'),
+    ]
 
-    base_token = models.CharField(max_length=10)  # e.g., BTC
-    quote_token = models.CharField(max_length=10)  # e.g., USDT
+    base_token = models.CharField(max_length=255)
+    quote_token = models.CharField(max_length=255)
     network_mode = models.CharField(max_length=10, choices=NETWORK_MODE_CHOICES, default='testnet', db_index=True)
+    instrument_type = models.CharField(
+        max_length=24,
+        choices=INSTRUMENT_TYPE_CHOICES,
+        default=INSTRUMENT_TOKEN,
+        db_index=True,
+    )
+    pair_key = models.CharField(max_length=64, null=True, blank=True, editable=False)
     is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='created_pairs')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -113,9 +128,33 @@ class TradingPair(models.Model):
     
     class Meta:
         unique_together = ['base_token', 'quote_token', 'network_mode']
+        constraints = [
+            models.UniqueConstraint(
+                fields=('network_mode', 'pair_key'),
+                name='trading_pair_unordered_unique_per_network',
+            ),
+        ]
     
     def __str__(self):
         return f"{self.base_token}/{self.quote_token}"
+
+    @staticmethod
+    def build_pair_key(base_token, quote_token):
+        canonical = '\x1f'.join(sorted((
+            str(base_token or '').strip().upper(),
+            str(quote_token or '').strip().upper(),
+        )))
+        return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+
+    def save(self, *args, **kwargs):
+        self.instrument_type = (
+            self.INSTRUMENT_SECURITY_CAPABLE
+            if str(self.base_token or '').startswith('$')
+            else self.INSTRUMENT_TOKEN
+        )
+        if self._state.adding or self.pair_key:
+            self.pair_key = self.build_pair_key(self.base_token, self.quote_token)
+        super().save(*args, **kwargs)
     
     def get_24h_stats(self):
         """Calculate 24h statistics from order executions"""
@@ -253,10 +292,10 @@ class OrderExecution(models.Model):
 
 class BalanceLock(models.Model):
     """
-    Tracks EVR balance locks (reservations) when users place buy orders.
-    
-    When a user places a buy order, the EVR amount is locked/reserved.
-    When the order is filled, cancelled, or expires, the lock is released or consumed.
+    Tracks asset reservations for open limit orders.
+
+    Buy orders reserve quote assets and sell orders reserve base assets.
+    The amount follows the order's remaining quantity until fill or cancellation.
     """
     STATUS_CHOICES = [
         ('locked', 'Locked'),
@@ -265,6 +304,7 @@ class BalanceLock(models.Model):
     ]
     
     user = models.ForeignKey('auth.User', on_delete=models.CASCADE, related_name='balance_locks', db_index=True)
+    asset_symbol = models.CharField(max_length=255, default='EVR', db_index=True)
     amount = models.DecimalField(max_digits=20, decimal_places=8, db_index=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='locked', db_index=True)
     
@@ -277,13 +317,14 @@ class BalanceLock(models.Model):
     released_at = models.DateTimeField(null=True, blank=True)
     
     def __str__(self):
-        return f"BalanceLock({self.user.username}, {self.amount} EVR, {self.status})"
+        return f"BalanceLock({self.user.username}, {self.amount} {self.asset_symbol}, {self.status})"
     
-    def get_total_locked(user):
-        """Get total amount of EVR locked for a user"""
+    def get_total_locked(user, asset_symbol='EVR'):
+        """Get the reserved amount of one asset for a user."""
         from django.db.models import Sum
         total = BalanceLock.objects.filter(
             user=user,
+            asset_symbol=str(asset_symbol or '').strip().upper(),
             status='locked'
         ).aggregate(total=Sum('amount'))['total']
         return total or 0
@@ -300,6 +341,9 @@ class NFT(models.Model):
     
     # IPFS image CID
     image_ipfs_cid = models.CharField(max_length=100, help_text="IPFS CID for NFT image")
+    metadata_ipfs_cid = models.CharField(max_length=255, blank=True, default='', help_text="IPFS CID for standardized NFT metadata JSON")
+    metadata_version = models.PositiveIntegerField(default=1, help_text="Version of the standardized NFT metadata schema")
+    metadata_json = models.JSONField(default=dict, blank=True, help_text="Normalized NFT metadata payload")
     
     # Metadata
     token_id = models.CharField(max_length=100, unique=True, db_index=True, help_text="Unique token ID for the NFT")
@@ -322,3 +366,50 @@ class NFT(models.Model):
         if self.image_ipfs_cid:
             return f"https://ipfs.io/ipfs/{self.image_ipfs_cid}"
         return None
+
+
+class UniqueAssetMintRequest(models.Model):
+    STATUS_PENDING = 'pending'
+    STATUS_BROADCAST = 'broadcast'
+    STATUS_CONFIRMED = 'confirmed'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_BROADCAST, 'Broadcast'),
+        (STATUS_CONFIRMED, 'Confirmed'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    NETWORK_MODE_CHOICES = [
+        ('testnet', 'Testnet'),
+        ('mainnet', 'Mainnet'),
+    ]
+
+    creator = models.ForeignKey('auth.User', on_delete=models.CASCADE, related_name='unique_mint_requests')
+    network_mode = models.CharField(max_length=10, choices=NETWORK_MODE_CHOICES, default='testnet', db_index=True)
+    admin_asset_symbol = models.CharField(max_length=255)
+    root_name = models.CharField(max_length=255)
+    asset_tag = models.CharField(max_length=255)
+    unique_asset_name = models.CharField(max_length=255)
+    metadata_ipfs_cid = models.CharField(max_length=255)
+    metadata_version = models.PositiveIntegerField(default=1)
+    metadata_json = models.JSONField(default=dict, blank=True)
+    mint_txid = models.CharField(max_length=255, blank=True, default='')
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    confirmation_depth = models.PositiveIntegerField(default=0)
+    last_checked_at = models.DateTimeField(blank=True, null=True)
+    error_message = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=('network_mode', 'unique_asset_name'),
+                name='unique_mint_request_network_asset_unique',
+            ),
+        ]
+        ordering = ('-created_at',)
+
+    def __str__(self):
+        return f"UniqueAssetMintRequest(asset={self.unique_asset_name}, status={self.status})"

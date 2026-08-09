@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -278,6 +279,7 @@
             box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -326,10 +328,10 @@
                     <select id="pool_id" name="pool_id" required onchange="updatePoolInfo()">
                         <option value="">-- Select token to borrow --</option>
                         {% for pool in lending_pools %}
-                        <option value="{{ pool.id }}" 
+                        <option value="{{ pool.id }}" title="{{ pool.token_symbol|asset_tooltip }}"
                                 data-borrow-rate="{{ pool.current_borrow_rate }}"
                                 data-available="{{ pool.available_liquidity }}">
-                            {{ pool.token_symbol }} - {{ pool.current_borrow_rate|floatformat:2 }}% APR
+                            {{ pool.token_symbol|market_symbol }} - {{ pool.current_borrow_rate|floatformat:2 }}% APR
                         </option>
                         {% endfor %}
                     </select>
@@ -340,10 +342,10 @@
                     <select id="collateral_asset_id" name="collateral_asset_id" required onchange="updateCollateralInfo()">
                         <option value="">-- Select collateral --</option>
                         {% for asset in collateral_assets %}
-                        <option value="{{ asset.id }}"
+                        <option value="{{ asset.id }}" title="{{ asset.token_symbol|asset_tooltip }}"
                                 data-factor="{{ asset.collateral_factor }}"
                                 data-threshold="{{ asset.liquidation_threshold }}">
-                            {{ asset.token_symbol }} (Max LTV: {{ asset.collateral_factor }}%)
+                            {{ asset.token_symbol|market_symbol }} (Max LTV: {{ asset.collateral_factor }}%)
                         </option>
                         {% endfor %}
                     </select>
@@ -376,7 +378,7 @@
             <div class="pools-grid">
                 {% for loan in user_loans %}
                 <div class="pool-card">
-                    <h3>{{ loan.pool.token_symbol }} Loan</h3>
+                    <h3 title="{{ loan.pool.token_symbol|asset_tooltip }}">{{ loan.pool.token_symbol|market_symbol }} Loan</h3>
                     <div class="pool-info">
                         <label>Borrowed:</label>
                         <span>{{ loan.principal_amount }}</span>
@@ -391,7 +393,7 @@
                     </div>
                     <div class="pool-info">
                         <label>Collateral:</label>
-                        <span>{{ loan.collateral_amount }} {{ loan.collateral_asset.token_symbol }}</span>
+                        <span>{{ loan.collateral_amount }} <span title="{{ loan.collateral_asset.token_symbol|asset_tooltip }}">{{ loan.collateral_asset.token_symbol|market_symbol }}</span></span>
                     </div>
                     <div class="pool-info">
                         <label>Health Factor:</label>

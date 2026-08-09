@@ -1,9 +1,10 @@
 from django.contrib import admin
-from .models import UserWallet, WalletProfile, TrackedAsset, TrackedAssetHolding, SafeTradeCredentials
+from .models import AssetCreationRequest, UserWallet, WalletProfile, WalletPreferences, TrackedAsset, TrackedAssetHolding, SafeTradeCredentials
 
 # Register your models here.
 admin.site.register(UserWallet)
 admin.site.register(WalletProfile)
+admin.site.register(WalletPreferences)
 
 
 @admin.register(TrackedAsset)
@@ -14,4 +15,5 @@ class TrackedAssetAdmin(admin.ModelAdmin):
 
 
 admin.site.register(TrackedAssetHolding)
+admin.site.register(AssetCreationRequest)
 admin.site.register(SafeTradeCredentials)

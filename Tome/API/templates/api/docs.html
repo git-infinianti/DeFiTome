@@ -261,6 +261,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -269,7 +270,7 @@
             <nav>
                 <a href="{% url 'home' %}">Home</a>
                 <a href="{% url 'explorer' %}">Explorer</a>
-                <a href="{% url 'listings' %}">Atomic Swaps</a>
+                <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
                 <a href="{% url 'portfolio' %}">Portfolio</a>
                 <a href="{% url 'settings' %}">Settings</a>
             </nav>
@@ -377,6 +378,55 @@ X-API-Key: YOUR_API_KEY_HERE</code></pre>
   }
 }</code></pre>
                 </div>
+            </div>
+        </div>
+
+        <div class="api-section">
+            <h2>🧱 Allowed RPC Procedures</h2>
+
+            <div class="api-endpoint">
+                <div class="endpoint-header">
+                    <span class="http-method method-get">GET</span>
+                    <span class="endpoint-path">/api/v1/rpc/procedures/</span>
+                </div>
+                <p class="endpoint-description">
+                    Returns the full procedure allowlist exposed by this API. Procedures outside this catalog are blocked.
+                </p>
+            </div>
+
+            <div class="api-endpoint">
+                <div class="endpoint-header">
+                    <span class="http-method method-post">POST</span>
+                    <span class="endpoint-path">/api/v1/rpc/execute/</span>
+                    <span class="status-badge" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid #fca5a5;">🔒 Auth Required</span>
+                </div>
+                <p class="endpoint-description">
+                    Executes only whitelisted Evrmore RPC procedures using positional parameters.
+                </p>
+                <div class="code-block">
+                    <pre><code>{
+  "procedure": "getblockchaininfo",
+  "params": []
+}</code></pre>
+                </div>
+
+                {% if rpc_procedure_catalog %}
+                <div class="param-list" style="margin-top: 1.5rem;">
+                    <h4>Allowed Procedures</h4>
+                    {% for group in rpc_procedure_catalog %}
+                    <div style="margin: 1rem 0;">
+                        <strong style="color: var(--accent-light);">{{ group.category }}</strong>
+                        <div style="color: var(--text-secondary); margin-top: 0.4rem; line-height: 1.8;">
+                            {% for procedure in group.procedures %}
+                                {% if procedure != '-' %}
+                                <code style="margin-right: 0.4rem;">{{ procedure }}</code>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
             </div>
         </div>
         

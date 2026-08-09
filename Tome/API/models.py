@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import User
 import secrets
 import hashlib
+import json
 
 
 class SolidityContract(models.Model):
@@ -158,3 +159,170 @@ class APIKey(models.Model):
     def verify_key(self, key):
         """Verify if a provided key matches this API key"""
         return self.key_hash == self.hash_key(key)
+
+
+class MessageChannelPolicy(models.Model):
+    """Versioned policy for strict message-channel broadcasts."""
+
+    NETWORK_MODE_CHOICES = [
+        ('mainnet', 'Mainnet'),
+        ('testnet', 'Testnet'),
+    ]
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('active', 'Active'),
+        ('deprecated', 'Deprecated'),
+    ]
+    CHAIN_METADATA_STATUS_PENDING = 'pending'
+    CHAIN_METADATA_STATUS_VERIFIED = 'verified'
+    CHAIN_METADATA_STATUS_MISSING = 'metadata_missing'
+    CHAIN_METADATA_STATUS_INVALID = 'invalid'
+    CHAIN_METADATA_STATUS_CHOICES = [
+        (CHAIN_METADATA_STATUS_PENDING, 'Pending confirmation'),
+        (CHAIN_METADATA_STATUS_VERIFIED, 'Verified'),
+        (CHAIN_METADATA_STATUS_MISSING, 'Metadata missing'),
+        (CHAIN_METADATA_STATUS_INVALID, 'Invalid metadata'),
+    ]
+
+    channel_key = models.CharField(max_length=64)
+    channel_name = models.CharField(max_length=255)
+    network_mode = models.CharField(max_length=10, choices=NETWORK_MODE_CHOICES, default='testnet')
+    version = models.PositiveIntegerField(default=1)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='active')
+
+    owner_account = models.ForeignKey(User, on_delete=models.PROTECT, related_name='owned_message_channel_policies')
+    manager_account = models.ForeignKey(User, on_delete=models.PROTECT, related_name='managed_message_channel_policies')
+
+    schema_name = models.CharField(max_length=120, default='defitome.atomic-swap-transfer-message')
+    schema_version = models.PositiveIntegerField(default=1)
+    allowed_stages = models.JSONField(default=list)
+    strict_rules = models.JSONField(default=dict)
+    rules_checksum = models.CharField(max_length=64, blank=True)
+    metadata_ipfs_cid = models.CharField(max_length=255, blank=True)
+    issuance_txid = models.CharField(max_length=100, blank=True)
+    chain_metadata_status = models.CharField(
+        max_length=24,
+        choices=CHAIN_METADATA_STATUS_CHOICES,
+        default='pending',
+        db_index=True,
+    )
+    chain_metadata_error = models.TextField(blank=True)
+    chain_metadata_checked_at = models.DateTimeField(null=True, blank=True)
+    revision_burn_txid = models.CharField(max_length=100, blank=True)
+    revision_burned_at = models.DateTimeField(null=True, blank=True)
+
+    is_locked = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('channel_key', '-version')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('channel_key', 'network_mode', 'version'),
+                name='message_channel_policy_key_network_version_unique',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=('channel_key', 'network_mode', 'status')),
+            models.Index(fields=('owner_account', 'network_mode')),
+        ]
+
+    def __str__(self):
+        return (
+            f"MessageChannelPolicy(key={self.channel_key}, network={self.network_mode}, "
+            f"version={self.version}, status={self.status})"
+        )
+
+    def save(self, *args, **kwargs):
+        rules_payload = {
+            'channel_key': self.channel_key,
+            'channel_name': self.channel_name,
+            'network_mode': self.network_mode,
+            'version': self.version,
+            'schema_name': self.schema_name,
+            'schema_version': self.schema_version,
+            'allowed_stages': self.allowed_stages,
+            'strict_rules': self.strict_rules,
+            'is_locked': self.is_locked,
+        }
+        canonical = json.dumps(rules_payload, sort_keys=True, separators=(',', ':'))
+        self.rules_checksum = hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+        super().save(*args, **kwargs)
+
+
+class AtomicSwapTransferMessage(models.Model):
+    """Audit log for strict atomic-swap transfer stage messaging."""
+
+    STATUS_CHOICES = [
+        ('recorded', 'Recorded'),
+        ('broadcasted', 'Broadcasted'),
+        ('failed', 'Failed'),
+        ('skipped', 'Skipped'),
+    ]
+
+    policy = models.ForeignKey(
+        MessageChannelPolicy,
+        on_delete=models.PROTECT,
+        related_name='messages',
+        null=True,
+        blank=True,
+    )
+    swap_offer = models.ForeignKey('DeFi.SwapOffer', on_delete=models.CASCADE, related_name='transfer_messages')
+    stage = models.CharField(max_length=64)
+    payload = models.JSONField(default=dict)
+    payload_checksum = models.CharField(max_length=64)
+    payload_ipfs_cid = models.CharField(max_length=255, blank=True)
+    broadcast_result = models.CharField(max_length=255, blank=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='recorded')
+    error_message = models.TextField(blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        indexes = [
+            models.Index(fields=('swap_offer', 'stage', '-created_at')),
+            models.Index(fields=('status', '-created_at')),
+        ]
+
+    def __str__(self):
+        return (
+            f"AtomicSwapTransferMessage(swap_offer={self.swap_offer_id}, stage={self.stage}, "
+            f"status={self.status})"
+        )
+
+
+class DexMarketEventMessage(models.Model):
+    """Audit and broadcast result for market and order publication events."""
+
+    STATUS_CHOICES = AtomicSwapTransferMessage.STATUS_CHOICES
+
+    policy = models.ForeignKey(
+        MessageChannelPolicy,
+        on_delete=models.PROTECT,
+        related_name='market_messages',
+        null=True,
+        blank=True,
+    )
+    trading_pair_id = models.PositiveIntegerField()
+    order_id = models.PositiveIntegerField(null=True, blank=True)
+    stage = models.CharField(max_length=64)
+    payload = models.JSONField(default=dict)
+    payload_checksum = models.CharField(max_length=64)
+    payload_ipfs_cid = models.CharField(max_length=255, blank=True)
+    broadcast_result = models.CharField(max_length=255, blank=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='recorded')
+    error_message = models.TextField(blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        indexes = [
+            models.Index(fields=('trading_pair_id', 'stage', '-created_at')),
+            models.Index(fields=('status', '-created_at')),
+        ]
+
+    def __str__(self):
+        return f"DexMarketEventMessage(pair={self.trading_pair_id}, stage={self.stage}, status={self.status})"

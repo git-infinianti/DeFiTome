@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -361,6 +362,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -372,7 +374,7 @@
                 <nav>
                     <a href="{% url 'home' %}">Home</a>
                     <a href="{% url 'explorer' %}">Explorer</a>
-                    <a href="{% url 'listings' %}">Atomic Swaps</a>
+                    <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
                     <a href="{% url 'portfolio' %}">Portfolio</a>
                     <a href="{% url 'api_docs' %}">Docs</a>
                     <a href="{% url 'settings' %}">Settings</a>
@@ -425,9 +427,9 @@
                     <div class="form-group">
                         <label for="currency">Currency *</label>
                         <select id="currency" name="currency" required>
-                            <option value="EVR" data-balance="{{ evr_balance|default:'0' }}" data-units="8" data-step="0.00000001" data-min="0.00000001" selected>EVR</option>
+                            <option value="EVR" data-balance="{{ evr_balance|default:'0' }}" data-units="8" data-step="0.00000001" data-min="0.00000001" {% if default_send_currency|default:'EVR' == 'EVR' %}selected{% endif %}>EVR</option>
                             {% for asset in asset_options %}
-                                <option value="{{ asset.symbol }}" data-balance="{{ asset.balance_value }}" data-units="{{ asset.units }}" data-step="{{ asset.step }}" data-min="{{ asset.min_value }}">{{ asset.symbol }}</option>
+                                <option value="{{ asset.symbol }}" title="{{ asset.symbol|asset_tooltip }}" data-balance="{{ asset.balance_value }}" data-units="{{ asset.units }}" data-step="{{ asset.step }}" data-min="{{ asset.min_value }}" {% if default_send_currency == asset.symbol %}selected{% endif %}>{{ asset.symbol|market_symbol }}</option>
                             {% endfor %}
                         </select>
                         <small>Select the currency you want to send</small>
@@ -484,10 +486,10 @@
                 
                 <div class="qr-placeholder">
                     <p style="margin-bottom: 0.75rem;">🔳 Receive Address QR</p>
-                    {% if receive_address_qr_data_uri %}
+                    {% if wallet_preferences.show_receive_qr and receive_address_qr_data_uri %}
                     <img src="{{ receive_address_qr_data_uri }}" alt="QR code for receiving address" class="qr-image">
                     {% else %}
-                    <p style="margin-top: 0.5rem;">Unable to generate QR code for this address.</p>
+                    <p style="margin-top: 0.5rem;">QR display is disabled in wallet preferences or unavailable for this address.</p>
                     {% endif %}
                 </div>
                 
@@ -595,6 +597,7 @@
 
         const addressInput = document.getElementById('recipient_address');
         const addressStatus = document.getElementById('address-status');
+        const shouldAutoValidateRecipient = {{ wallet_preferences.auto_validate_recipient|yesno:'true,false' }};
         let addressTimer = null;
 
         function setAddressStatus(state) {
@@ -626,7 +629,7 @@
             }
         }
 
-        if (addressInput && addressStatus) {
+        if (shouldAutoValidateRecipient && addressInput && addressStatus) {
             addressInput.addEventListener('input', () => {
                 setAddressStatus('idle');
                 if (addressTimer) {
@@ -670,8 +673,15 @@
         }
         
         const initialTab = window.location.hash.replace('#', '');
+        const preferredTab = '{{ default_home_tab|default:"send" }}';
         if (['receive', 'profiles', 'send'].includes(initialTab)) {
             switchTab(initialTab);
+        } else if (['receive', 'profiles'].includes(preferredTab)) {
+            switchTab(preferredTab);
+        }
+
+        if (initialTab === 'receive' && {{ wallet_preferences.auto_copy_receive_address|yesno:'true,false' }}) {
+            copyText(document.getElementById('wallet-address').textContent.trim());
         }
     </script>
 </body>

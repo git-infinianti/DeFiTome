@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -235,6 +236,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -292,7 +294,7 @@
                         
                         <div class="detail-item">
                             <div class="detail-label">Pool</div>
-                            <div class="detail-value">{{ tx.pool.token_a_symbol }}/{{ tx.pool.token_b_symbol }}</div>
+                            <div class="detail-value"><span title="{{ tx.pool.token_a_symbol|asset_tooltip }}">{{ tx.pool.token_a_symbol|market_symbol }}</span>/<span title="{{ tx.pool.token_b_symbol|asset_tooltip }}">{{ tx.pool.token_b_symbol|market_symbol }}</span></div>
                         </div>
                     </div>
                     

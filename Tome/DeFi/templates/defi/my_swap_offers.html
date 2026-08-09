@@ -1,3 +1,4 @@
+{% load static market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -260,18 +261,21 @@
             font-size: 1.8rem;
         }
     </style>
+    <link rel="stylesheet" href="{% static 'css/atomic-swaps.css' %}">
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
-<body>
+<body class="theme-{{ user_theme }}">
     <div class="container">
         <header>
             <div class="logo">DeFi Tome</div>
             <nav>
                 <a href="{% url 'home' %}">Home</a>
                 <a href="{% url 'explorer' %}">Explorer</a>
-                <a href="{% url 'listings' %}">Atomic Swaps</a>
+                <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
                 <a href="{% url 'dex_orderbook' %}">DEX</a>
                 <a href="{% url 'lending_home' %}">Lending</a>
             </nav>
+            <div class="live-balance">Last synced<strong>{{ user_wallet_balance|floatformat:8 }} EVR</strong></div>
         </header>
         
         {% if messages %}
@@ -287,7 +291,7 @@
         <div class="page-header">
             <h1 class="page-title">My Atomic Swaps</h1>
             <div class="quick-nav">
-                <a href="{% url 'create_swap_offer' %}" class="btn-nav">+ Create Offer</a>
+                <a href="{% url 'create_listing' %}" class="btn-nav">+ Create Offer</a>
                 <a href="{% url 'available_swap_offers' %}" class="btn-nav">Available Swaps</a>
                 <a href="{% url 'my_swap_history' %}" class="btn-nav">History</a>
             </div>
@@ -304,13 +308,13 @@
                         <div class="swap-visual">
                             <div class="token-box">
                                 <div class="token-amount">{{ offer.offer_amount }}</div>
-                                <div class="token-symbol">{{ offer.offer_token }}</div>
+                                <div class="token-symbol" title="{{ offer.offer_token|asset_tooltip }}">{{ offer.offer_token|market_symbol }}</div>
                                 <div class="detail-label">You Offer</div>
                             </div>
                             <div class="swap-arrow">⇄</div>
                             <div class="token-box">
                                 <div class="token-amount">{{ offer.request_amount }}</div>
-                                <div class="token-symbol">{{ offer.request_token }}</div>
+                                <div class="token-symbol" title="{{ offer.request_token|asset_tooltip }}">{{ offer.request_token|market_symbol }}</div>
                                 <div class="detail-label">You Want</div>
                             </div>
                         </div>
@@ -337,11 +341,11 @@
                             </div>
                         </div>
                         
-                        {% if offer.status == 'pending' %}
+                        {% if offer.status == 'pending' or offer.status == 'settling' or offer.status == 'accepted' %}
                             <div class="offer-actions">
                                 <form method="post" action="{% url 'cancel_swap_offer' offer.id %}" style="flex: 1;">
                                     {% csrf_token %}
-                                    <button type="submit" class="btn btn-cancel">Cancel Offer</button>
+                                    <button type="submit" class="btn btn-cancel">Remove Swap</button>
                                 </form>
                             </div>
                         {% endif %}

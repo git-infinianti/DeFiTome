@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -259,6 +260,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -268,7 +270,7 @@
                 <a href="{% url 'home' %}">Home</a>
                 <a href="{% url 'testnet_home' %}">DeFi</a>
                 <a href="{% url 'explorer' %}">Explorer</a>
-                <a href="{% url 'listings' %}">Atomic Swaps</a>
+                <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
                 <a href="{% url 'portfolio' %}">Portfolio</a>
                 <a href="{% url 'api_docs' %}">Docs</a>
                 <a href="{% url 'settings' %}">Settings</a>
@@ -324,13 +326,13 @@
             <div class="pool-grid">
                 {% for pool in pools %}
                 <div class="pool-card">
-                    <h3>{{ pool.token_a_symbol }}/{{ pool.token_b_symbol }}</h3>
+                    <h3><span title="{{ pool.token_a_symbol|asset_tooltip }}">{{ pool.token_a_symbol|market_symbol }}</span>/<span title="{{ pool.token_b_symbol|asset_tooltip }}">{{ pool.token_b_symbol|market_symbol }}</span></h3>
                     <div class="pool-info">
-                        <label>{{ pool.token_a_symbol }} Reserve:</label>
+                        <label><span title="{{ pool.token_a_symbol|asset_tooltip }}">{{ pool.token_a_symbol|market_symbol }}</span> Reserve:</label>
                         <span>{{ pool.token_a_reserve }}</span>
                     </div>
                     <div class="pool-info">
-                        <label>{{ pool.token_b_symbol }} Reserve:</label>
+                        <label><span title="{{ pool.token_b_symbol|asset_tooltip }}">{{ pool.token_b_symbol|market_symbol }}</span> Reserve:</label>
                         <span>{{ pool.token_b_reserve }}</span>
                     </div>
                     <div class="pool-info">

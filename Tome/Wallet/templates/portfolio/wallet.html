@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -369,6 +370,187 @@
             word-break: break-word;
             max-width: 65%;
         }
+
+        .asset-collection {
+            margin: 0 0 2rem;
+            padding: 1.5rem 0;
+            border-top: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .section-heading {
+            display: flex;
+            align-items: end;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .section-heading h2 {
+            font-size: 1.35rem;
+            color: var(--text-primary);
+        }
+
+        .section-heading p {
+            margin-top: 0.25rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .asset-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 0.75rem;
+        }
+
+        .asset-item {
+            --asset-color: #38bdf8;
+            display: grid;
+            grid-template-columns: 44px minmax(0, 1fr);
+            gap: 0.85rem;
+            min-height: 154px;
+            padding: 1rem;
+            border: 1px solid var(--border-color);
+            border-top: 3px solid var(--asset-color);
+            border-radius: 8px;
+            background: var(--card-bg);
+        }
+
+        .asset-main { --asset-color: #38bdf8; }
+        .asset-sub { --asset-color: #2dd4bf; }
+        .asset-unique { --asset-color: #f59e0b; }
+        .asset-messaging_channel { --asset-color: #22c55e; }
+        .asset-qualifier, .asset-sub_qualifier { --asset-color: #eab308; }
+        .asset-restricted { --asset-color: #f43f5e; }
+        .asset-administrator { --asset-color: #a78bfa; }
+
+        .asset-marker {
+            width: 44px;
+            height: 44px;
+            display: grid;
+            place-items: center;
+            border: 1px solid color-mix(in srgb, var(--asset-color) 55%, transparent);
+            border-radius: 6px;
+            color: var(--asset-color);
+            font-family: 'Courier New', monospace;
+            font-weight: 700;
+            background: color-mix(in srgb, var(--asset-color) 10%, transparent);
+        }
+
+        .asset-copy {
+            min-width: 0;
+        }
+
+        .asset-type {
+            color: var(--asset-color);
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .asset-symbol {
+            margin-top: 0.2rem;
+            overflow-wrap: anywhere;
+            font-family: 'Courier New', monospace;
+            font-size: 1rem;
+        }
+
+        .asset-description {
+            min-height: 34px;
+            margin-top: 0.35rem;
+            color: var(--text-muted);
+            font-size: 0.82rem;
+        }
+
+        .asset-footer {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .asset-quantity strong {
+            display: block;
+            font-size: 1rem;
+        }
+
+        .asset-quantity span {
+            color: var(--text-muted);
+            font-size: 0.72rem;
+        }
+
+        .asset-action {
+            display: inline-flex;
+            align-items: center;
+            min-height: 32px;
+            margin: 0;
+            padding: 0;
+            border: 0;
+            color: var(--accent-light);
+            background: transparent;
+            font-family: inherit;
+            font-size: 0.82rem;
+            font-weight: 600;
+            line-height: 1;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .section-heading .actions,
+        .section-heading .actions form {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin: 0;
+        }
+
+        .issuance-list {
+            display: grid;
+            gap: 0.5rem;
+        }
+
+        .issuance-row {
+            display: grid;
+            grid-template-columns: minmax(130px, 1fr) minmax(190px, 1.5fr) auto;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.8rem 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .issuance-row:last-child {
+            border-bottom: 0;
+        }
+
+        .issuance-name strong,
+        .issuance-name span {
+            display: block;
+        }
+
+        .issuance-name span,
+        .issuance-txid {
+            color: var(--text-muted);
+            font-size: 0.78rem;
+        }
+
+        .issuance-txid {
+            overflow-wrap: anywhere;
+            font-family: 'Courier New', monospace;
+        }
+
+        .chain-state {
+            color: var(--warning-text);
+            font-size: 0.78rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .chain-state.confirmed {
+            color: var(--success-text);
+        }
         
         @media (max-width: 768px) {
             .wallet-field {
@@ -385,8 +567,19 @@
             .page-title {
                 font-size: 2rem;
             }
+
+            .section-heading,
+            .asset-footer {
+                align-items: flex-start;
+            }
+
+            .issuance-row {
+                grid-template-columns: 1fr;
+                gap: 0.35rem;
+            }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -396,100 +589,205 @@
             </div>
             <div class="header-right">
                 <nav>
-                    <a href="{% url 'home' %}">Home</a>
+                    <a href="{% url 'home' %}">Overview</a>
+                    <a href="{% url 'portfolio' %}" class="active" aria-current="page">Wallet</a>
+                    <a href="{% url 'markets' %}">Markets</a>
+                    <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
                     <a href="{% url 'explorer' %}">Explorer</a>
-                    <a href="{% url 'listings' %}">Atomic Swaps</a>
-                    <a href="{% url 'portfolio' %}">Portfolio</a>
-                    <a href="{% url 'api_docs' %}">Docs</a>
-                    <a href="{% url 'settings' %}">Settings</a>
+                    <a href="{% url 'media_list' %}">Media</a>
                 </nav>
-                {% if has_wallet and user_wallet_balance is not None %}
+                {% if has_wallet %}
                 <div class="wallet-balance-display">
-                    <span class="balance-label">Balance:</span>
+                    <span
+                        class="balance-label"
+                        title="{% if user_wallet_balance_updated_at %}Last synchronized {{ user_wallet_balance_updated_at|date:'F j, Y, g:i:s A T' }}{% else %}This wallet has not been synchronized yet{% endif %}"
+                    >Last synced:</span>
                     <span class="balance-amount">{{ user_wallet_balance|floatformat:8 }} EVR</span>
                 </div>
                 {% endif %}
             </div>
         </header>
         
-        <h1 class="page-title">💼 Wallet Portfolio</h1>
-        <p class="page-subtitle">Manage your DeFi wallets and assets</p>
+        <div class="page-heading">
+            <div>
+                <h1 class="page-title">Wallet</h1>
+                <p class="page-subtitle">Balances, assets, transfers, and custody controls.</p>
+            </div>
+            {% if user_wallet %}
+            <div class="page-actions" aria-label="Wallet actions">
+                <a href="{% url 'send_funds' %}" class="btn btn-primary">Send</a>
+                <a href="{% url 'address_metadata_tag_list' %}" class="btn">Address profiles</a>
+                <a href="{% url 'wallet_transactions' %}" class="btn">History</a>
+            </div>
+            {% endif %}
+        </div>
 
         {% if messages %}
             {% for message in messages %}
             <div class="alert{% if message.tags == 'error' %} alert-error{% endif %}">
-                <span class="alert-icon">{% if message.tags == 'error' %}⚠️{% else %}ℹ️{% endif %}</span>
                 {{ message }}
             </div>
             {% endfor %}
         {% endif %}
         
         {% if user_wallet %}
-        <div class="card">
-            <h2>Your Wallet</h2>
-            <div class="alert">
-                <span class="alert-icon">ℹ️</span>
-                Your wallet information is stored in the database.
+        <div class="card wallet-summary">
+            <div class="section-heading">
+                <div>
+                    <h2>{{ user_wallet.name }}</h2>
+                    <p>Primary wallet record</p>
+                </div>
+                <span class="status-badge status-active">Active</span>
             </div>
             <div class="wallet-info">
                 <div class="wallet-field">
-                    <label>Wallet Name:</label>
+                    <label>Name</label>
                     <div class="value">{{ user_wallet.name }}</div>
                 </div>
                 <div class="wallet-field">
-                    <label>Created:</label>
+                    <label>Created</label>
                     <div class="value">{{ user_wallet.created_at|date:"F d, Y H:i" }}</div>
                 </div>
                 <div class="wallet-field">
-                    <label>Status:</label>
-                    <div class="value status-active">Active</div>
+                    <label>Synced balance</label>
+                    <div class="value status-active">{{ user_wallet_balance|floatformat:8 }} EVR</div>
                 </div>
             </div>
         </div>
+
+        <section class="asset-collection" aria-labelledby="asset-collection-title">
+            <div class="section-heading">
+                <div>
+                    <h2 id="asset-collection-title">Asset Collection</h2>
+                    <p>Balances and controls available at your primary address.</p>
+                </div>
+                <div class="actions">
+                    <form method="post" action="{% url 'sync_balance' %}">
+                        {% csrf_token %}
+                        <button type="submit" class="asset-action">Refresh balances</button>
+                    </form>
+                    <a href="{% url 'send_funds' %}" class="asset-action">Send an asset</a>
+                </div>
+            </div>
+            {% if asset_balance_error %}
+            <div class="alert alert-error">Asset balances are temporarily unavailable.</div>
+            {% endif %}
+            <div class="asset-grid">
+                {% for asset in portfolio_assets %}
+                <article class="asset-item asset-{{ asset.asset_type }}">
+                    <div class="asset-marker" aria-hidden="true">{{ asset.marker }}</div>
+                    <div class="asset-copy">
+                        <div class="asset-type">{{ asset.type_label }}</div>
+                        <h3 class="asset-symbol" title="{{ asset.symbol|asset_tooltip }}">{{ asset.symbol|market_symbol }}</h3>
+                        <p class="asset-description">{{ asset.description }}</p>
+                    </div>
+                    <div class="asset-footer">
+                        <div class="asset-quantity">
+                            <strong>{{ asset.quantity }}</strong>
+                            <span>{% if asset.is_unique %}collectible{% elif asset.is_administrator %}control token{% else %}available{% endif %}</span>
+                        </div>
+                        {% if asset.is_messaging and request.user.is_staff %}
+                        <a href="{% url 'messaging_channel_management' %}" class="asset-action">Manage channel</a>
+                        {% elif asset.is_administrator and request.user.is_staff %}
+                        <a href="{% url 'asset_creation_wizard' %}" class="asset-action">Issue assets</a>
+                        {% else %}
+                        <a href="{% url 'send_funds' %}?currency={{ asset.symbol|urlencode }}" class="asset-action">Send</a>
+                        {% endif %}
+                    </div>
+                </article>
+                {% empty %}
+                <div class="empty-state"><p>No assets are held at this address yet.</p></div>
+                {% endfor %}
+            </div>
+        </section>
+
+        {% if recent_asset_issuances %}
+        <section class="asset-collection" aria-labelledby="issuance-activity-title">
+            <div class="section-heading">
+                <div>
+                    <h2 id="issuance-activity-title">Issuance Activity</h2>
+                    <p>Recent broadcasts from the asset creation workspace.</p>
+                </div>
+                {% if request.user.is_staff %}<a href="{% url 'asset_creation_wizard' %}" class="asset-action">Open workspace</a>{% endif %}
+            </div>
+            <div class="issuance-list">
+                {% for issuance in recent_asset_issuances %}
+                <div class="issuance-row">
+                    <div class="issuance-name">
+                        <strong title="{{ issuance.asset_name|asset_tooltip }}">{{ issuance.asset_name|market_symbol }}</strong>
+                        <span>{{ issuance.asset_kind }}</span>
+                    </div>
+                    <div class="issuance-txid" title="{{ issuance.txid }}">{{ issuance.txid }}</div>
+                    <div class="chain-state{% if issuance.is_confirmed %} confirmed{% endif %}">
+                        {% if issuance.is_confirmed %}{{ issuance.confirmations }} confirmation{{ issuance.confirmations|pluralize }}{% else %}Pending confirmation{% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
         
         <div class="card">
             <h2>Wallet Management</h2>
             <div class="management-section">
                 <a href="{% url 'backup_wallet' %}" class="management-card-link">
                     <div class="management-card">
-                        <div class="management-card-icon">🔑</div>
+                        <div class="management-card-icon" aria-hidden="true">01</div>
                         <h3>Backup Wallet</h3>
                         <p>Securely backup your wallet credentials</p>
                     </div>
                 </a>
                 <a href="{% url 'wallet_transactions' %}" class="management-card-link">
                     <div class="management-card">
-                        <div class="management-card-icon">📊</div>
+                        <div class="management-card-icon" aria-hidden="true">02</div>
                         <h3>View Transactions</h3>
                         <p>Check your transaction history</p>
                     </div>
                 </a>
                 <a href="{% url 'send_funds' %}" class="management-card-link">
                     <div class="management-card">
-                        <div class="management-card-icon">💸</div>
+                        <div class="management-card-icon" aria-hidden="true">03</div>
                         <h3>Send/Receive</h3>
                         <p>Transfer assets to and from your wallet</p>
                     </div>
                 </a>
                 <a href="{% url 'media_list' %}" class="management-card-link">
                     <div class="management-card">
-                        <div class="management-card-icon">📁</div>
+                        <div class="management-card-icon" aria-hidden="true">04</div>
                         <h3>Media</h3>
                         <p>Manage your IPFS uploads</p>
                     </div>
                 </a>
                 <a href="{% url 'address_metadata_tag_list' %}" class="management-card-link">
                     <div class="management-card">
-                        <div class="management-card-icon">#</div>
+                        <div class="management-card-icon" aria-hidden="true">05</div>
                         <h3>Address Profiles</h3>
                         <p>Create and verify on-chain address profiles</p>
                     </div>
                 </a>
-                <div class="management-card">
-                    <div class="management-card-icon">⚙️</div>
-                    <h3>Settings</h3>
-                    <p>Configure wallet preferences</p>
-                </div>
+                <a href="{% url 'wallet_preferences' %}" class="management-card-link">
+                    <div class="management-card">
+                        <div class="management-card-icon" aria-hidden="true">06</div>
+                        <h3>Settings</h3>
+                        <p>Configure wallet preferences</p>
+                    </div>
+                </a>
+                {% if request.user.is_staff or request.user.is_superuser %}
+                <a href="{% url 'asset_creation_wizard' %}" class="management-card-link">
+                    <div class="management-card">
+                        <div class="management-card-icon" aria-hidden="true">07</div>
+                        <h3>Asset Creation</h3>
+                        <p>Preflight and issue testnet asset types</p>
+                    </div>
+                </a>
+                <a href="{% url 'messaging_channel_management' %}" class="management-card-link">
+                    <div class="management-card">
+                        <div class="management-card-icon" aria-hidden="true">08</div>
+                        <h3>Message Channels</h3>
+                        <p>Create strict console channel assets</p>
+                    </div>
+                </a>
+                {% endif %}
             </div>
         </div>
         {% else %}

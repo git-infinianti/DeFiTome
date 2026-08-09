@@ -7,6 +7,8 @@ urlpatterns = [
     
     # API Info
     path('v1/info/', views.api_info, name='api_info'),
+    path('v1/rpc/procedures/', views.rpc_procedures, name='rpc_procedures'),
+    path('v1/rpc/execute/', views.rpc_execute, name='rpc_execute'),
     
     # Contract Management
     path('v1/contracts/', views.contracts_list, name='contracts_list'),
@@ -31,5 +33,7 @@ urlpatterns = [
     path('v1/messages/send/', views.send_message, name='send_message'),
     path('v1/messages/', views.view_messages, name='view_messages'),
     path('v1/messages/channels/', views.view_channels, name='view_channels'),
+    path('v1/messages/channels/create/', views.create_channel_console_asset, name='create_channel_console_asset'),
+    path('v1/messages/channels/scan/', views.scan_channel_console_assets, name='scan_channel_console_assets'),
 ]
 

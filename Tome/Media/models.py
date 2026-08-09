@@ -10,12 +10,25 @@ class IPFSUpload(models.Model):
     # implementation can raise/attempt network calls. Use a plain FileField
     # and perform IPFS operations lazily at runtime.
     file_stored_on_ipfs = models.FileField(blank=True, null=True)
+    original_filename = models.CharField(max_length=255, blank=True)
     ipfs_hash = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        name = getattr(self.file_stored_on_ipfs, 'name', '') or ''
+        name = self.original_filename or getattr(self.file_stored_on_ipfs, 'name', '') or ''
         return f"IPFSUpload(file_name={name}, ipfs_hash={self.ipfs_hash})"
+
+    @property
+    def display_filename(self):
+        return self.original_filename or getattr(self.file_stored_on_ipfs, 'name', '') or 'Unnamed File'
+
+    @property
+    def ipfs_uri(self):
+        if not self.ipfs_hash:
+            return ''
+        if self.original_filename:
+            return f'ipfs://{self.ipfs_hash}/{self.original_filename}'
+        return f'ipfs://{self.ipfs_hash}'
 
     def upload_to_ipfs(self):
         """Upload the current file to Kubo `/api/v0/add` and save the CID.

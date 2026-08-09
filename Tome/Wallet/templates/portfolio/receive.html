@@ -287,6 +287,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -298,7 +299,7 @@
                 <nav>
                     <a href="{% url 'home' %}">Home</a>
                     <a href="{% url 'explorer' %}">Explorer</a>
-                    <a href="{% url 'listings' %}">Atomic Swaps</a>
+                    <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
                     <a href="{% url 'portfolio' %}">Portfolio</a>
                     <a href="{% url 'api_docs' %}">Docs</a>
                     <a href="{% url 'settings' %}">Settings</a>
@@ -329,6 +330,7 @@
                 <button class="btn btn-secondary" onclick="copyAddress()">📋 Copy Address</button>
             </div>
             
+            {% if wallet_preferences.show_receive_qr|default:True %}
             <div class="qr-placeholder">
                 <p style="margin-bottom: 0.75rem;">🔳 Receive Address QR</p>
                 {% if address_qr_data_uri %}
@@ -337,6 +339,7 @@
                 <p style="margin-top: 0.5rem;">Unable to generate QR code for this address.</p>
                 {% endif %}
             </div>
+            {% endif %}
 
             <div class="qr-placeholder">
                 <p style="margin-bottom: 0.75rem;">📋 Paste Address From Clipboard</p>

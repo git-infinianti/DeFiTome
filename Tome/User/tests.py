@@ -276,7 +276,37 @@ class HomePageAuthTestCase(TestCase):
         # Should redirect to login with next parameter
         self.assertEqual(response.status_code, 302)
         self.assertIn('next=', response.url)
-        self.assertIn('/user/home/', response.url)
+        self.assertIn('next=/', response.url)
+
+
+class CanonicalRouteFlowTestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_primary_routes_use_short_canonical_paths(self):
+        self.assertEqual(reverse('home'), '/')
+        self.assertEqual(reverse('markets'), '/markets/')
+        self.assertEqual(reverse('dex_orderbook'), '/markets/trade/')
+        self.assertEqual(reverse('create_listing'), '/defi/p2p/create/')
+        self.assertEqual(reverse('available_swap_offers'), '/defi/p2p/available/')
+
+    def test_legacy_entry_points_redirect_to_canonical_routes(self):
+        cases = (
+            ('/user/home/', '/'),
+            ('/listings/', '/defi/p2p/available/'),
+            ('/listings/create/', '/defi/p2p/create/'),
+            ('/listings/markets/', '/markets/'),
+            ('/listings/dex/', '/markets/trade/'),
+        )
+        for legacy_path, canonical_path in cases:
+            with self.subTest(legacy_path=legacy_path):
+                response = self.client.get(legacy_path)
+                self.assertRedirects(
+                    response,
+                    canonical_path,
+                    status_code=301,
+                    fetch_redirect_response=False,
+                )
 
 
 class EvrmoreWalletAuthenticationTestCase(TestCase):

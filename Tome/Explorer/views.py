@@ -1,7 +1,16 @@
 from django.shortcuts import render, redirect
-from django.http import Http404
+from django.core.cache import cache
+from django.http import Http404, JsonResponse
 from .rpc import RPC
-from Tome.rpc_client import get_current_network_mode
+from Tome.rpc_client import (
+    clear_active_network_mode,
+    clear_active_rpc_endpoint_mode,
+    get_active_rpc_endpoint_mode,
+    get_current_network_mode,
+    set_active_network_mode,
+    set_active_rpc_endpoint_mode,
+)
+from concurrent.futures import ThreadPoolExecutor
 import datetime
 import time
 from decimal import Decimal, InvalidOperation
@@ -129,12 +138,121 @@ def _rpc_call(method_name, *args):
 
     raise AttributeError(f'RPC method {method_name} is unavailable')
 
+
+def _routed_rpc_call(network_mode, endpoint_mode, method_name, *args):
+    set_active_network_mode(network_mode)
+    set_active_rpc_endpoint_mode(endpoint_mode)
+    try:
+        return _rpc_call(method_name, *args)
+    finally:
+        clear_active_network_mode()
+        clear_active_rpc_endpoint_mode()
+
+
+def _demo_explorer_data(page, network_mode, blocks_per_page=10):
+    block_count = 2847563
+    current_time = int(time.time())
+    base_height = block_count - ((page - 1) * blocks_per_page)
+    blocks = [
+        {
+            'height': base_height - index,
+            'hash': f'{"a1b2c3d4e5f6g7h8i9j0" * 3}'[:64],
+            'time': current_time - (index * 60),
+            'tx_count': 15 + (index * 2),
+            'size': 125000 + (index * 1000),
+            'difficulty': 15432.8976543,
+            'confirmations': index + 1,
+        }
+        for index in range(blocks_per_page)
+        if base_height - index >= 0
+    ]
+    return {
+        'blocks': blocks,
+        'error_message': None,
+        'page': page,
+        'has_next': True,
+        'has_prev': page > 1,
+        'network_stats': {
+            'block_height': block_count,
+            'difficulty': 15432.8976543,
+            'hashrate': 1234567890.12,
+            'chain': 'main' if network_mode == 'mainnet' else 'test',
+            'blocks': block_count,
+            'bestblockhash': 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a7b8c9d0e1f2',
+        },
+        'total_blocks': block_count,
+        'is_live': False,
+    }
+
+
+def _load_live_explorer_data(page, network_mode, endpoint_mode, blocks_per_page=10):
+    with ThreadPoolExecutor(max_workers=6, thread_name_prefix='explorer-rpc') as executor:
+        block_count_future = executor.submit(
+            _routed_rpc_call, network_mode, endpoint_mode, 'getblockcount'
+        )
+        blockchain_future = executor.submit(
+            _routed_rpc_call, network_mode, endpoint_mode, 'getblockchaininfo'
+        )
+        mining_future = executor.submit(
+            _routed_rpc_call, network_mode, endpoint_mode, 'getmininginfo'
+        )
+        block_count = int(block_count_future.result())
+        blockchain_info = blockchain_future.result()
+        mining_info = mining_future.result()
+
+        max_page = (block_count // blocks_per_page) + 1
+        page = min(page, max_page)
+        start_offset = (page - 1) * blocks_per_page
+        heights = [
+            block_count - start_offset - index
+            for index in range(blocks_per_page)
+            if block_count - start_offset - index >= 0
+        ]
+
+        hash_futures = {
+            height: executor.submit(
+                _routed_rpc_call, network_mode, endpoint_mode, 'getblockhash', height
+            )
+            for height in heights
+        }
+        hashes = {height: future.result() for height, future in hash_futures.items()}
+        block_futures = {
+            height: executor.submit(
+                _routed_rpc_call, network_mode, endpoint_mode, 'getblock', block_hash
+            )
+            for height, block_hash in hashes.items()
+        }
+        block_data = {height: future.result() for height, future in block_futures.items()}
+
+    blocks = [{
+        'height': height,
+        'hash': hashes[height],
+        'time': block_data[height].get('time'),
+        'tx_count': len(block_data[height].get('tx', [])),
+        'size': block_data[height].get('size'),
+        'difficulty': block_data[height].get('difficulty'),
+        'confirmations': block_data[height].get('confirmations', 0),
+    } for height in heights]
+    return {
+        'blocks': blocks,
+        'error_message': None,
+        'page': page,
+        'has_next': (block_count - start_offset - blocks_per_page) >= 0,
+        'has_prev': page > 1,
+        'network_stats': {
+            'block_height': block_count,
+            'difficulty': mining_info.get('difficulty', 0),
+            'hashrate': mining_info.get('networkhashps', 0),
+            'chain': blockchain_info.get('chain', 'unknown'),
+            'blocks': blockchain_info.get('blocks', 0),
+            'bestblockhash': blockchain_info.get('bestblockhash', ''),
+        },
+        'total_blocks': block_count,
+        'is_live': True,
+    }
+
 def explorer(request):
-    """Display recent blocks with network statistics and search"""
-    blocks = []
-    error_message = None
-    network_stats = {}
-    recent_blocks = []
+    """Render cached explorer data immediately and refresh live telemetry separately."""
     blocks_per_page = 10
     selected_network_mode = get_current_network_mode()
     
@@ -151,108 +269,26 @@ def explorer(request):
     except ValueError:
         page = 1
     
-    try:
-        # Get network statistics
-        block_count = _rpc_call('getblockcount')
-        blockchain_info = _rpc_call('getblockchaininfo')
-        mining_info = _rpc_call('getmininginfo')
-        
-        network_stats = {
-            'block_height': block_count,
-            'difficulty': mining_info.get('difficulty', 0),
-            'hashrate': mining_info.get('networkhashps', 0),
-            'chain': blockchain_info.get('chain', 'unknown'),
-            'blocks': blockchain_info.get('blocks', 0),
-            'bestblockhash': blockchain_info.get('bestblockhash', ''),
-        }
-        
-        # Calculate maximum valid page number
-        max_page = (block_count // blocks_per_page) + 1
-        if page > max_page:
-            page = max_page
-        
-        # Calculate starting block for this page
-        start_offset = (page - 1) * blocks_per_page
-        
-        # Get blocks for the current page
-        for i in range(blocks_per_page):
-            block_height = block_count - start_offset - i
-            if block_height < 0:
-                break
-            
-            # Get block hash for this height
-            block_hash = _rpc_call('getblockhash', block_height)
-            
-            # Get block details
-            block = _rpc_call('getblock', block_hash)
-            
-            blocks.append({
-                'height': block_height,
-                'hash': block_hash,
-                'time': block.get('time'),
-                'tx_count': len(block.get('tx', [])),
-                'size': block.get('size'),
-                'difficulty': block.get('difficulty'),
-                'confirmations': block.get('confirmations', 0),
-            })
-        
-        # Calculate if there are more blocks to show
-        has_next = (block_count - start_offset - blocks_per_page) >= 0
-        has_prev = page > 1
-        
-    except Exception as e:
-        # Demo mode: Show sample data when blockchain is not available
-        demo_mode = request.GET.get('demo', 'true') == 'true'  # Enable demo by default
-        
-        if demo_mode:
-            # Generate mock network statistics
-            network_stats = {
-                'block_height': 2847563,
-                'difficulty': 15432.8976543,
-                'hashrate': 1234567890.12,
-                'chain': 'main' if selected_network_mode == 'mainnet' else 'test',
-                'blocks': 2847563,
-                'bestblockhash': 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a7b8c9d0e1f2',
-            }
-            
-            # Generate mock blocks
-            current_time = int(time.time())
-            base_height = 2847563 - ((page - 1) * blocks_per_page)
-            
-            for i in range(blocks_per_page):
-                block_height = base_height - i
-                if block_height < 0:
-                    break
-                
-                blocks.append({
-                    'height': block_height,
-                    'hash': f'{"a1b2c3d4e5f6g7h8i9j0" * 3}'[:64],
-                    'time': current_time - (i * 60),  # 60 seconds apart
-                    'tx_count': 15 + (i * 2),
-                    'size': 125000 + (i * 1000),
-                    'difficulty': 15432.8976543,
-                    'confirmations': i + 1,
-                })
-            
-            has_next = True
-            has_prev = page > 1
-            block_count = 2847563
-            error_message = None  # Clear error in demo mode
-        else:
-            error_message = f"Error connecting to blockchain: {str(e)}"
-            has_next = False
-            has_prev = False
-            block_count = 0
-    
-    context = {
-        'blocks': blocks,
-        'error_message': error_message,
-        'page': page,
-        'has_next': has_next,
-        'has_prev': has_prev,
-        'network_stats': network_stats,
-        'total_blocks': block_count,
-    }
+    cache_key = f'explorer:{selected_network_mode}:{page}'
+    if request.GET.get('refresh') == '1':
+        try:
+            context = _load_live_explorer_data(
+                page,
+                selected_network_mode,
+                get_active_rpc_endpoint_mode(),
+                blocks_per_page=blocks_per_page,
+            )
+            cache.set(cache_key, context, timeout=30)
+            return JsonResponse({'success': True, 'is_live': True})
+        except Exception as exc:
+            return JsonResponse({'success': False, 'error': str(exc)}, status=503)
+
+    context = cache.get(cache_key) or _demo_explorer_data(
+        page,
+        selected_network_mode,
+        blocks_per_page=blocks_per_page,
+    )
+    context['refresh_url'] = f'?page={page}&refresh=1'
     return render(request, 'explorer/index.html', context)
 
 

@@ -2,13 +2,31 @@ from django.shortcuts import render
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 import json
 
-from .models import SolidityContract, ContractInteraction, ContractAsset
+from .models import (
+    SolidityContract,
+    ContractInteraction,
+    ContractAsset,
+    MessageChannelPolicy,
+)
 from .rpc import evrmore_rpc
 from .authentication import api_key_required
+from .message_channel_lib import (
+    canonical_json,
+    validate_channel_key,
+    validate_console_payload,
+)
+from .channel_console_service import (
+    create_channel_console_asset_for_user,
+    scan_channel_console_assets as scan_channel_console_assets_service,
+)
+from .rpc_procedure_registry import (
+    execute_allowed_rpc_procedure,
+    get_rpc_procedure_catalog,
+)
+from Media.kubo_api import KuboAPIUploader
 
 
 # ============================================================
@@ -25,8 +43,16 @@ def docs(request):
     
     context = {
         'user_has_api_key': user_has_api_key,
+        'rpc_procedure_catalog': get_rpc_procedure_catalog(),
     }
     return render(request, 'api/docs.html', context)
+
+
+def _rpc_lockdown_response():
+    return JsonResponse({
+        'success': False,
+        'error': 'This API surface is locked down. Use the allowed RPC procedure endpoint instead.',
+    }, status=403)
 
 
 @require_http_methods(["GET"])
@@ -49,11 +75,8 @@ def api_info(request):
                 'difficulty': blockchain_info.get('difficulty', 0),
             },
             'endpoints': {
-                'contracts': '/api/v1/contracts/',
-                'assets': '/api/v1/assets/',
-                'nfts': '/api/v1/nfts/',
-                'blockchain': '/api/v1/blockchain/',
-                'messages': '/api/v1/messages/',
+                'rpc_procedures': '/api/v1/rpc/procedures/',
+                'rpc_execute': '/api/v1/rpc/execute/',
             }
         })
     except Exception as e:
@@ -76,49 +99,7 @@ def contracts_list(request):
     GET: List all deployed contracts
     POST: Deploy a new contract (requires API key)
     """
-    if request.method == 'GET':
-        # List contracts
-        page = request.GET.get('page', 1)
-        per_page = request.GET.get('per_page', 20)
-        
-        contracts = SolidityContract.objects.filter(is_active=True)
-        
-        # Filter by deployer if specified
-        deployer_id = request.GET.get('deployer')
-        if deployer_id:
-            contracts = contracts.filter(deployer_id=deployer_id)
-        
-        paginator = Paginator(contracts, per_page)
-        page_obj = paginator.get_page(page)
-        
-        contracts_data = []
-        for contract in page_obj:
-            contracts_data.append({
-                'id': contract.id,
-                'name': contract.name,
-                'contract_address': contract.contract_address,
-                'deployer': contract.deployer.username,
-                'deployment_tx': contract.deployment_tx,
-                'deployment_block': contract.deployment_block,
-                'description': contract.description,
-                'ipfs_hash': contract.ipfs_hash,
-                'created_at': contract.created_at.isoformat(),
-            })
-        
-        return JsonResponse({
-            'success': True,
-            'contracts': contracts_data,
-            'pagination': {
-                'page': page_obj.number,
-                'per_page': per_page,
-                'total_pages': paginator.num_pages,
-                'total_contracts': paginator.count,
-            }
-        })
-    
-    elif request.method == 'POST':
-        # Deploy endpoint moved to separate function with API key auth
-        return contracts_deploy(request)
+    return _rpc_lockdown_response()
 
 
 @csrf_exempt
@@ -128,53 +109,7 @@ def contracts_deploy(request):
     """
     Deploy a new contract. Requires API key authentication.
     """
-    try:
-        data = json.loads(request.body)
-        
-        # Required fields
-        name = data.get('name')
-        contract_address = data.get('contract_address')  # Asset name or identifier
-        
-        if not name or not contract_address:
-            return JsonResponse({
-                'success': False,
-                'error': 'Name and contract_address are required'
-            }, status=400)
-        
-        # Create contract record
-        contract = SolidityContract.objects.create(
-            name=name,
-            contract_address=contract_address,
-            source_code=data.get('source_code', ''),
-            bytecode=data.get('bytecode', ''),
-            abi=data.get('abi', []),
-            deployer=request.user,
-            deployment_tx=data.get('deployment_tx', ''),
-            deployment_block=data.get('deployment_block'),
-            description=data.get('description', ''),
-            ipfs_hash=data.get('ipfs_hash', ''),
-        )
-        
-        return JsonResponse({
-            'success': True,
-            'contract': {
-                'id': contract.id,
-                'name': contract.name,
-                'contract_address': contract.contract_address,
-                'created_at': contract.created_at.isoformat(),
-            }
-        }, status=201)
-        
-    except json.JSONDecodeError:
-        return JsonResponse({
-            'success': False,
-            'error': 'Invalid JSON'
-        }, status=400)
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
+    return _rpc_lockdown_response()
 
 
 
@@ -189,64 +124,7 @@ def contract_detail(request, contract_id):
     Returns:
         JSON response with contract details
     """
-    try:
-        contract = SolidityContract.objects.get(id=contract_id, is_active=True)
-        
-        # Get related assets
-        assets = contract.assets.all()
-        assets_data = []
-        for asset in assets:
-            assets_data.append({
-                'asset_name': asset.asset_name,
-                'quantity': str(asset.quantity),
-                'units': asset.units,
-                'reissuable': asset.reissuable,
-                'has_ipfs': asset.has_ipfs,
-                'ipfs_hash': asset.ipfs_hash,
-            })
-        
-        # Get recent interactions
-        interactions = contract.interactions.all()[:10]
-        interactions_data = []
-        for interaction in interactions:
-            interactions_data.append({
-                'function_name': interaction.function_name,
-                'user': interaction.user.username,
-                'tx_hash': interaction.tx_hash,
-                'success': interaction.success,
-                'created_at': interaction.created_at.isoformat(),
-            })
-        
-        return JsonResponse({
-            'success': True,
-            'contract': {
-                'id': contract.id,
-                'name': contract.name,
-                'contract_address': contract.contract_address,
-                'source_code': contract.source_code,
-                'bytecode': contract.bytecode,
-                'abi': contract.abi,
-                'deployer': contract.deployer.username,
-                'deployment_tx': contract.deployment_tx,
-                'deployment_block': contract.deployment_block,
-                'description': contract.description,
-                'ipfs_hash': contract.ipfs_hash,
-                'created_at': contract.created_at.isoformat(),
-                'updated_at': contract.updated_at.isoformat(),
-                'assets': assets_data,
-                'recent_interactions': interactions_data,
-            }
-        })
-    except SolidityContract.DoesNotExist:
-        return JsonResponse({
-            'success': False,
-            'error': 'Contract not found'
-        }, status=404)
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
+    return _rpc_lockdown_response()
 
 
 @csrf_exempt
@@ -267,61 +145,7 @@ def contract_interact(request, contract_id):
         JSON response with interaction result
     """
     
-    try:
-        contract = SolidityContract.objects.get(id=contract_id, is_active=True)
-        data = json.loads(request.body)
-        
-        function_name = data.get('function_name')
-        parameters = data.get('parameters', {})
-        
-        if not function_name:
-            return JsonResponse({
-                'success': False,
-                'error': 'function_name is required'
-            }, status=400)
-        
-        # Create interaction record
-        interaction = ContractInteraction.objects.create(
-            contract=contract,
-            user=request.user,
-            function_name=function_name,
-            parameters=parameters,
-            success=False,
-        )
-        
-        # Here you would implement actual contract interaction
-        # For MVP, we'll just record the interaction
-        # In production, this would call the contract via RPC
-        
-        interaction.success = True
-        interaction.result = {'status': 'pending', 'message': 'Contract interaction queued'}
-        interaction.save()
-        
-        return JsonResponse({
-            'success': True,
-            'interaction': {
-                'id': interaction.id,
-                'function_name': interaction.function_name,
-                'parameters': interaction.parameters,
-                'created_at': interaction.created_at.isoformat(),
-            }
-        })
-        
-    except SolidityContract.DoesNotExist:
-        return JsonResponse({
-            'success': False,
-            'error': 'Contract not found'
-        }, status=404)
-    except json.JSONDecodeError:
-        return JsonResponse({
-            'success': False,
-            'error': 'Invalid JSON'
-        }, status=400)
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
+    return _rpc_lockdown_response()
 
 
 # ============================================================
@@ -405,44 +229,7 @@ def asset_issue(request):
         ipfs_hash: IPFS hash (optional)
     """
     
-    try:
-        data = json.loads(request.body)
-        
-        asset_name = data.get('asset_name')
-        qty = data.get('qty')
-        
-        if not asset_name or not qty:
-            return JsonResponse({
-                'success': False,
-                'error': 'asset_name and qty are required'
-            }, status=400)
-        
-        result = evrmore_rpc.issue_asset(
-            asset_name=asset_name,
-            qty=qty,
-            to_address=data.get('to_address', ''),
-            change_address=data.get('change_address', ''),
-            units=data.get('units', 0),
-            reissuable=data.get('reissuable', True),
-            has_ipfs=data.get('has_ipfs', False),
-            ipfs_hash=data.get('ipfs_hash', ''),
-        )
-        
-        return JsonResponse({
-            'success': True,
-            'result': result
-        })
-        
-    except json.JSONDecodeError:
-        return JsonResponse({
-            'success': False,
-            'error': 'Invalid JSON'
-        }, status=400)
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
+    return _rpc_lockdown_response()
 
 
 @csrf_exempt
@@ -450,48 +237,7 @@ def asset_issue(request):
 @require_http_methods(["POST"])
 def nft_mint(request):
     """Mint an NFT by issuing an Evrmore unique asset."""
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({
-            'success': False,
-            'error': 'Invalid JSON',
-        }, status=400)
-
-    root_name = str(data.get('root_name', '')).strip().upper()
-    asset_tag = str(data.get('asset_tag', '')).strip()
-    ipfs_hash = str(data.get('ipfs_hash', '')).strip()
-
-    if not root_name or not asset_tag:
-        return JsonResponse({
-            'success': False,
-            'error': 'root_name and asset_tag are required',
-        }, status=400)
-
-    if '#' in root_name or root_name.endswith('!') or '#' in asset_tag or any(char.isspace() for char in asset_tag):
-        return JsonResponse({
-            'success': False,
-            'error': 'root_name must be an asset root and asset_tag must not contain # or whitespace',
-        }, status=400)
-
-    try:
-        result = evrmore_rpc.issue_unique_asset(
-            root_name=root_name,
-            asset_tags=[asset_tag],
-            ipfs_hashes=[ipfs_hash] if ipfs_hash else None,
-            to_address=str(data.get('to_address', '')).strip(),
-            change_address=str(data.get('change_address', '')).strip(),
-        )
-        return JsonResponse({
-            'success': True,
-            'nft_asset_name': f'{root_name}#{asset_tag}',
-            'tx_hash': result,
-        })
-    except Exception as exc:
-        return JsonResponse({
-            'success': False,
-            'error': str(exc),
-        }, status=500)
+    return _rpc_lockdown_response()
 
 
 @csrf_exempt
@@ -511,44 +257,7 @@ def asset_transfer(request):
         asset_change_address: Asset change address (optional)
     """
     
-    try:
-        data = json.loads(request.body)
-        
-        asset_name = data.get('asset_name')
-        qty = data.get('qty')
-        to_address = data.get('to_address')
-        
-        if not asset_name or not qty or not to_address:
-            return JsonResponse({
-                'success': False,
-                'error': 'asset_name, qty, and to_address are required'
-            }, status=400)
-        
-        result = evrmore_rpc.transfer_asset(
-            asset_name=asset_name,
-            qty=qty,
-            to_address=to_address,
-            message=data.get('message', ''),
-            expire_time=data.get('expire_time', 0),
-            change_address=data.get('change_address', ''),
-            asset_change_address=data.get('asset_change_address', ''),
-        )
-        
-        return JsonResponse({
-            'success': True,
-            'tx_hash': result
-        })
-        
-    except json.JSONDecodeError:
-        return JsonResponse({
-            'success': False,
-            'error': 'Invalid JSON'
-        }, status=400)
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
+    return _rpc_lockdown_response()
 
 
 # ============================================================
@@ -695,71 +404,67 @@ def send_message(request):
         expire_time: Expiration time (default: 0)
     """
     
+    return _rpc_lockdown_response()
+
+
+@csrf_exempt
+@api_key_required
+@require_http_methods(["POST"])
+def create_channel_console_asset(request):
+    """Admin-only channel asset issuance under owned admin assets with IPFS console metadata."""
+    return _rpc_lockdown_response()
+
+
+@require_http_methods(["GET"])
+def scan_channel_console_assets(request):
+    """Scan blockchain messaging channel assets and validate attached IPFS JSON metadata."""
+    return _rpc_lockdown_response()
+
+
+@require_http_methods(["GET"])
+def rpc_procedures(request):
+    return JsonResponse({
+        'success': True,
+        'catalog': get_rpc_procedure_catalog(),
+    })
+
+
+@csrf_exempt
+@api_key_required
+@require_http_methods(["POST"])
+def rpc_execute(request):
     try:
         data = json.loads(request.body)
-        
-        channel_name = data.get('channel_name')
-        ipfs_hash = data.get('ipfs_hash')
-        
-        if not channel_name or not ipfs_hash:
+        procedure = str(data.get('procedure') or '').strip().lower()
+        params = data.get('params')
+        if params is None:
+            params = []
+        if not isinstance(params, list):
             return JsonResponse({
                 'success': False,
-                'error': 'channel_name and ipfs_hash are required'
+                'error': 'params must be a JSON array.',
             }, status=400)
-        
-        result = evrmore_rpc.send_message(
-            channel_name=channel_name,
-            ipfs_hash=ipfs_hash,
-            expire_time=data.get('expire_time', 0),
-        )
-        
+
+        result = execute_allowed_rpc_procedure(procedure, params=params)
         return JsonResponse({
             'success': True,
-            'result': result
+            'procedure': procedure,
+            'result': result,
         })
-        
     except json.JSONDecodeError:
-        return JsonResponse({
-            'success': False,
-            'error': 'Invalid JSON'
-        }, status=400)
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
+        return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'error': str(exc)}, status=403)
+    except Exception as exc:
+        return JsonResponse({'success': False, 'error': str(exc)}, status=500)
 
 
 @require_http_methods(["GET"])
 def view_messages(request):
-    """View all messages"""
-    try:
-        messages = evrmore_rpc.view_all_messages()
-        
-        return JsonResponse({
-            'success': True,
-            'messages': messages
-        })
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
+    return _rpc_lockdown_response()
 
 
 @require_http_methods(["GET"])
 def view_channels(request):
-    """View all message channels"""
-    try:
-        channels = evrmore_rpc.view_all_message_channels()
-        
-        return JsonResponse({
-            'success': True,
-            'channels': channels
-        })
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
+    return _rpc_lockdown_response()
 

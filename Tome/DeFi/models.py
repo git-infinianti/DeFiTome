@@ -188,7 +188,7 @@ class SwapTransaction(models.Model):
         return f"SwapTransaction({self.from_amount} {self.from_token} -> {self.to_amount} {self.to_token})"
 
 class SwapOffer(models.Model):
-    """Atomic asset-for-EVR swap offer between two users."""
+    """Atomic unique-asset offer settled with EVR or a fungible asset."""
     NETWORK_MODE_CHOICES = [
         ('testnet', 'Testnet'),
         ('mainnet', 'Mainnet'),
@@ -220,6 +220,7 @@ class SwapOffer(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     escrow_id = models.CharField(max_length=100, blank=True)
     expires_at = models.DateTimeField()
+    settlement_temp_txid = models.CharField(max_length=100, blank=True)
     settlement_txid = models.CharField(max_length=100, blank=True)
     settlement_error = models.TextField(blank=True)
     settlement_started_at = models.DateTimeField(null=True, blank=True)
@@ -228,6 +229,31 @@ class SwapOffer(models.Model):
     
     def __str__(self):
         return f"SwapOffer({self.offer_amount} {self.offer_token} for {self.request_amount} {self.request_token})"
+
+
+class SwapFundingLock(models.Model):
+    """Reserves user balances during atomic swap settlement attempts."""
+
+    STATUS_CHOICES = [
+        ('locked', 'Locked'),
+        ('released', 'Released'),
+        ('consumed', 'Consumed'),
+    ]
+
+    swap_offer = models.ForeignKey(SwapOffer, on_delete=models.CASCADE, related_name='funding_locks', db_index=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='swap_funding_locks', db_index=True)
+    token_symbol = models.CharField(max_length=255, db_index=True)
+    amount = models.DecimalField(max_digits=20, decimal_places=8)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='locked', db_index=True)
+    lock_reason = models.CharField(max_length=50, default='atomic_swap_settlement')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    released_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return (
+            f"SwapFundingLock(offer={self.swap_offer_id}, user={self.user_id}, "
+            f"{self.amount} {self.token_symbol}, status={self.status})"
+        )
 
 class SwapEscrow(models.Model):
     """Escrow for locked funds during P2P swap"""

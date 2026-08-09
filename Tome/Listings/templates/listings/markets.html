@@ -1,3 +1,4 @@
+{% load static market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -380,6 +381,8 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="{% static 'css/market-dex.css' %}">
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -389,13 +392,10 @@
             </div>
             <div class="header-right">
                 <nav>
-                    <a href="{% url 'home' %}">Home</a>
-                    <a href="{% url 'explorer' %}">Explorer</a>
-                    <a href="{% url 'listings' %}">Atomic Swaps</a>
-                    <a href="{% url 'lending_home' %}">Lending</a>
+                    <a href="{% url 'markets' %}">Markets</a>
+                    <a href="{% url 'dex_orderbook' %}">Trade</a>
+                    <a href="{% url 'my_orders' %}">Orders</a>
                     <a href="{% url 'portfolio' %}">Portfolio</a>
-                    <a href="{% url 'api_docs' %}">Docs</a>
-                    <a href="{% url 'settings' %}">Settings</a>
                 </nav>
                 {% if has_wallet and user_wallet_balance is not None %}
                 <div class="wallet-balance-display">
@@ -407,15 +407,15 @@
         </header>
         
         <section class="page-title">
-            <h1>Markets</h1>
-            <p>Browse user-created markets and trade pairs on {{ current_network|title }}</p>
+            <h1>Market DEX</h1>
+            <p>Continuous spot markets on {{ current_network|title }}</p>
         </section>
         
         <div class="page-actions">
             {% if can_manage_markets %}
             <a href="{% url 'create_market' %}" class="btn btn-primary">+ Create Market</a>
             {% endif %}
-            <a href="{% url 'listings' %}" class="btn btn-secondary">Back to Atomic Swaps</a>
+            <a href="{% url 'dex_orderbook' %}" class="btn btn-secondary">Open Trading Desk</a>
         </div>
 
         {% if not can_manage_markets %}
@@ -463,8 +463,9 @@
                         <div class="market-pair">
                             <span class="star-icon">☆</span>
                             <a href="{% url 'dex_orderbook' %}?pair={{ market.id }}" style="text-decoration: none; color: #2c3e50;">
-                                {{ market.base_token }}/{{ market.quote_token }}
+                                <span title="{{ market.base_token|asset_tooltip }}">{{ market.base_token|market_symbol }}</span>/<span title="{{ market.quote_token|asset_tooltip }}">{{ market.quote_token|market_symbol }}</span>
                             </a>
+                            <span class="instrument-badge {% if market.instrument_type == 'security_capable' %}security-capable{% endif %}">{{ market.get_instrument_type_display }}</span>
                         </div>
                     </td>
                     <td>{{ market.last_price|floatformat:8 }}</td>

@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -276,6 +277,7 @@
             box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -321,7 +323,7 @@
             <div class="positions-grid">
                 {% for deposit in user_deposits %}
                 <div class="position-card">
-                    <h3>{{ deposit.pool.token_symbol }} Deposit</h3>
+                    <h3 title="{{ deposit.pool.token_symbol|asset_tooltip }}">{{ deposit.pool.token_symbol|market_symbol }} Deposit</h3>
                     <div class="position-info">
                         <label>Principal:</label>
                         <span>{{ deposit.principal_amount }}</span>
@@ -363,7 +365,7 @@
             <div class="positions-grid">
                 {% for loan in user_loans %}
                 <div class="position-card">
-                    <h3>{{ loan.pool.token_symbol }} Loan</h3>
+                    <h3 title="{{ loan.pool.token_symbol|asset_tooltip }}">{{ loan.pool.token_symbol|market_symbol }} Loan</h3>
                     <div class="position-info">
                         <label>Principal:</label>
                         <span>{{ loan.principal_amount }}</span>
@@ -378,7 +380,7 @@
                     </div>
                     <div class="position-info">
                         <label>Collateral:</label>
-                        <span>{{ loan.collateral_amount }} {{ loan.collateral_asset.token_symbol }}</span>
+                        <span>{{ loan.collateral_amount }} <span title="{{ loan.collateral_asset.token_symbol|asset_tooltip }}">{{ loan.collateral_asset.token_symbol|market_symbol }}</span></span>
                     </div>
                     <div class="position-info">
                         <label>Health Factor:</label>

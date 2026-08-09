@@ -1,9 +1,10 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ token_symbol }} Price History - DeFi Tome Oracle</title>
+    <title>{{ token_symbol|market_symbol }} Price History - DeFi Tome Oracle</title>
     <style>
         * {
             margin: 0;
@@ -157,6 +158,7 @@
             box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -169,7 +171,7 @@
         </header>
         
         <div class="header-section">
-            <h1>{{ token_symbol }} Price History</h1>
+            <h1 title="{{ token_symbol|asset_tooltip }}">{{ token_symbol|market_symbol }} Price History</h1>
             <p style="color: var(--text-muted);">Historical price data aggregated from oracle network</p>
         </div>
         
@@ -202,7 +204,7 @@
             </table>
             {% else %}
             <div class="no-data">
-                <p>No aggregated price history available for {{ token_symbol }}.</p>
+                <p>No aggregated price history available for <span title="{{ token_symbol|asset_tooltip }}">{{ token_symbol|market_symbol }}</span>.</p>
             </div>
             {% endif %}
         </div>
@@ -232,7 +234,7 @@
             </table>
             {% else %}
             <div class="no-data">
-                <p>No individual submissions available for {{ token_symbol }}.</p>
+                <p>No individual submissions available for <span title="{{ token_symbol|asset_tooltip }}">{{ token_symbol|market_symbol }}</span>.</p>
             </div>
             {% endif %}
         </div>

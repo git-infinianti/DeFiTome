@@ -8,6 +8,7 @@ network per request and attempts RPC calls in this order:
 
 import logging
 import threading
+from contextlib import contextmanager
 
 from django.conf import settings as django_settings
 from evrmore_rpc import EvrmoreClient
@@ -43,6 +44,16 @@ def get_active_network_mode():
 def clear_active_network_mode():
     if hasattr(_thread_local, 'network_mode'):
         delattr(_thread_local, 'network_mode')
+
+
+@contextmanager
+def using_network_mode(network_mode):
+    previous_mode = get_active_network_mode()
+    set_active_network_mode(network_mode)
+    try:
+        yield get_active_network_mode()
+    finally:
+        set_active_network_mode(previous_mode)
 
 
 def normalize_rpc_endpoint_mode(rpc_endpoint_mode):
@@ -242,11 +253,10 @@ class PublicRpcClient:
                 json=payload,
                 timeout=self.timeout,
             )
-            response.raise_for_status()
-
             body = response.json()
             if body.get('error'):
                 raise Exception(str(body['error']))
+            response.raise_for_status()
             return body.get('result')
 
         return _call
@@ -289,6 +299,9 @@ class AuthRpcClient:
                     timeout=self.timeout,
                     auth=self.auth,
                 )
+                body = response.json()
+                if body.get('error'):
+                    raise Exception(str(body['error']))
                 response.raise_for_status()
             except requests.HTTPError as exc:
                 status_code = exc.response.status_code if exc.response is not None else None
@@ -299,6 +312,9 @@ class AuthRpcClient:
                         timeout=self.timeout,
                         auth=self.auth,
                     )
+                    body = response.json()
+                    if body.get('error'):
+                        raise Exception(str(body['error']))
                     response.raise_for_status()
                 else:
                     raise

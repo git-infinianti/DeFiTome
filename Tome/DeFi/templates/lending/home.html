@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -243,6 +244,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -252,7 +254,7 @@
                 <a href="{% url 'home' %}">Home</a>
                 <a href="{% url 'testnet_home' %}">DeFi</a>
                 <a href="{% url 'explorer' %}">Explorer</a>
-                <a href="{% url 'listings' %}">Atomic Swaps</a>
+                <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
                 <a href="{% url 'portfolio' %}">Portfolio</a>
                 <a href="{% url 'api_docs' %}">Docs</a>
                 <a href="{% url 'settings' %}">Settings</a>
@@ -297,7 +299,7 @@
             <div class="pools-grid">
                 {% for pool in lending_pools %}
                 <div class="pool-card">
-                    <h3>{{ pool.token_symbol }} Pool</h3>
+                    <h3 title="{{ pool.token_symbol|asset_tooltip }}">{{ pool.token_symbol|market_symbol }} Pool</h3>
                     <div class="pool-info">
                         <label>Total Deposits:</label>
                         <span>{{ pool.total_deposits }}</span>
@@ -341,7 +343,7 @@
             <div class="pools-grid">
                 {% for deposit in user_deposits %}
                 <div class="pool-card">
-                    <h3>{{ deposit.pool.token_symbol }}</h3>
+                    <h3 title="{{ deposit.pool.token_symbol|asset_tooltip }}">{{ deposit.pool.token_symbol|market_symbol }}</h3>
                     <div class="pool-info">
                         <label>Principal:</label>
                         <span>{{ deposit.principal_amount }}</span>
@@ -364,7 +366,7 @@
             <div class="pools-grid">
                 {% for loan in user_loans %}
                 <div class="pool-card">
-                    <h3>{{ loan.pool.token_symbol }} Loan</h3>
+                    <h3 title="{{ loan.pool.token_symbol|asset_tooltip }}">{{ loan.pool.token_symbol|market_symbol }} Loan</h3>
                     <div class="pool-info">
                         <label>Borrowed:</label>
                         <span>{{ loan.principal_amount }}</span>
@@ -379,7 +381,7 @@
                     </div>
                     <div class="pool-info">
                         <label>Collateral:</label>
-                        <span>{{ loan.collateral_amount }} {{ loan.collateral_asset.token_symbol }}</span>
+                        <span>{{ loan.collateral_amount }} <span title="{{ loan.collateral_asset.token_symbol|asset_tooltip }}">{{ loan.collateral_asset.token_symbol|market_symbol }}</span></span>
                     </div>
                     <div class="pool-info">
                         <label>Health Factor:</label>

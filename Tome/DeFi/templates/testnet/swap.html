@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -222,6 +223,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -262,7 +264,7 @@
                                 data-token-b="{{ pool.token_b_symbol }}"
                                 data-reserve-a="{{ pool.token_a_reserve }}"
                                 data-reserve-b="{{ pool.token_b_reserve }}">
-                            {{ pool.token_a_symbol }}/{{ pool.token_b_symbol }} Pool
+                            {{ pool.token_a_symbol|market_symbol }}/{{ pool.token_b_symbol|market_symbol }} Pool
                         </option>
                         {% endfor %}
                     </select>

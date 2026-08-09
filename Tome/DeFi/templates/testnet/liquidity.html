@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -286,6 +287,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -331,7 +333,7 @@
                         <select name="pool_id" id="add_pool_id" required>
                             <option value="">-- Select a pool --</option>
                             {% for pool in pools %}
-                            <option value="{{ pool.id }}">{{ pool.token_a_symbol }}/{{ pool.token_b_symbol }} Pool</option>
+                            <option value="{{ pool.id }}" title="{{ pool.token_a_symbol|asset_tooltip }} / {{ pool.token_b_symbol|asset_tooltip }}">{{ pool.token_a_symbol|market_symbol }}/{{ pool.token_b_symbol|market_symbol }} Pool</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -364,7 +366,7 @@
                         <select name="pool_id" id="remove_pool_id" required>
                             <option value="">-- Select a pool --</option>
                             {% for position in user_positions %}
-                            <option value="{{ position.pool.id }}">{{ position.pool.token_a_symbol }}/{{ position.pool.token_b_symbol }} ({{ position.liquidity_tokens }} tokens)</option>
+                            <option value="{{ position.pool.id }}" title="{{ position.pool.token_a_symbol|asset_tooltip }} / {{ position.pool.token_b_symbol|asset_tooltip }}">{{ position.pool.token_a_symbol|market_symbol }}/{{ position.pool.token_b_symbol|market_symbol }} ({{ position.liquidity_tokens }} tokens)</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -387,7 +389,7 @@
                 <div class="positions-grid">
                     {% for position in user_positions %}
                     <div class="position-card">
-                        <h3>{{ position.pool.token_a_symbol }}/{{ position.pool.token_b_symbol }}</h3>
+                        <h3><span title="{{ position.pool.token_a_symbol|asset_tooltip }}">{{ position.pool.token_a_symbol|market_symbol }}</span>/<span title="{{ position.pool.token_b_symbol|asset_tooltip }}">{{ position.pool.token_b_symbol|market_symbol }}</span></h3>
                         <div class="position-info">
                             <label>Liquidity Tokens:</label>
                             <span>{{ position.liquidity_tokens }}</span>

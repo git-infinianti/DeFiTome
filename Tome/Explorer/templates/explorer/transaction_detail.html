@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -262,6 +263,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -270,7 +272,7 @@
             <nav>
                 <a href="{% url 'home' %}">Home</a>
                 <a href="{% url 'explorer' %}">Explorer</a>
-                <a href="{% url 'listings' %}">Atomic Swaps</a>
+                <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
                 <a href="{% url 'portfolio' %}">Portfolio</a>
                 <a href="{% url 'api_docs' %}">Docs</a>
                 <a href="{% url 'settings' %}">Settings</a>
@@ -433,7 +435,7 @@
 
                     {% if vout.asset_name %}
                     <div style="margin-top: 0.5rem; color: var(--accent-light); font-size: 0.9rem;">
-                        Asset: {{ vout.asset_name }}{% if vout.asset_amount_display %} ({{ vout.asset_amount_display }}){% endif %}
+                        Asset: <span title="{{ vout.asset_name|asset_tooltip }}">{{ vout.asset_name|market_symbol }}</span>{% if vout.asset_amount_display %} ({{ vout.asset_amount_display }}){% endif %}
                     </div>
                     {% if vout.asset_message %}
                     <div class="io-scriptpubkey">

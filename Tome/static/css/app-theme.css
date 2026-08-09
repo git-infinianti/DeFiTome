@@ -1,0 +1,841 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap");
+
+:root,
+body.theme-dark,
+body.theme-default,
+body.theme- {
+    color-scheme: dark;
+    --app-bg: #0d100e;
+    --app-surface: #141915;
+    --app-surface-raised: #1a201b;
+    --app-surface-strong: #202821;
+    --app-input: #101511;
+    --app-line: #2b332d;
+    --app-line-strong: #3b473e;
+    --app-text: #f0f5f1;
+    --app-text-secondary: #c7d1c9;
+    --app-muted: #98a49b;
+    --app-accent: #62d98b;
+    --app-accent-strong: #43bd70;
+    --app-accent-ink: #071009;
+    --app-accent-soft: rgba(98, 217, 139, 0.1);
+    --app-warning: #efbc63;
+    --app-warning-soft: rgba(239, 188, 99, 0.1);
+    --app-danger: #f27c76;
+    --app-danger-soft: rgba(242, 124, 118, 0.1);
+    --app-info: #73b7df;
+    --app-info-soft: rgba(115, 183, 223, 0.1);
+    --app-shadow: none;
+    --app-radius: 4px;
+    --app-content: 1320px;
+}
+
+body.theme-light {
+    color-scheme: light;
+    --app-bg: #f2f5f3;
+    --app-surface: #ffffff;
+    --app-surface-raised: #edf3ef;
+    --app-surface-strong: #e3ebe6;
+    --app-input: #f8faf9;
+    --app-line: #ccd8d0;
+    --app-line-strong: #aebdb3;
+    --app-text: #142019;
+    --app-text-secondary: #34473b;
+    --app-muted: #64746a;
+    --app-accent: #087f5b;
+    --app-accent-strong: #056947;
+    --app-accent-ink: #ffffff;
+    --app-accent-soft: rgba(8, 127, 91, 0.09);
+    --app-warning: #9b6208;
+    --app-warning-soft: rgba(155, 98, 8, 0.09);
+    --app-danger: #c2413a;
+    --app-danger-soft: rgba(194, 65, 58, 0.08);
+    --app-info: #246d99;
+    --app-info-soft: rgba(36, 109, 153, 0.08);
+    --app-shadow: 0 8px 24px rgba(24, 52, 39, 0.06);
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    background: var(--app-bg);
+    scroll-behavior: smooth;
+}
+
+body {
+    --bg-gradient-start: var(--app-bg);
+    --bg-gradient-end: var(--app-bg);
+    --text-primary: var(--app-text);
+    --text-secondary: var(--app-text-secondary);
+    --text-muted: var(--app-muted);
+    --border-color: var(--app-line);
+    --card-bg: var(--app-surface);
+    --card-bg-hover: var(--app-surface-raised);
+    --accent-primary: var(--app-accent);
+    --accent-secondary: var(--app-accent);
+    --accent-light: var(--app-accent);
+    --accent-purple: var(--app-warning);
+    --input-bg: var(--app-input);
+    --input-focus-bg: var(--app-surface-raised);
+    min-width: 320px;
+    min-height: 100vh;
+    margin: 0;
+    background-color: var(--app-bg) !important;
+    background-image:
+        linear-gradient(rgba(98, 217, 139, 0.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(98, 217, 139, 0.022) 1px, transparent 1px) !important;
+    background-size: 32px 32px !important;
+    color: var(--app-text);
+    font-family: "IBM Plex Sans", sans-serif !important;
+    letter-spacing: 0;
+}
+
+body::before,
+body::after {
+    display: none !important;
+}
+
+body > .container,
+body > main,
+body > .page-shell,
+body > .app-shell {
+    width: min(var(--app-content), calc(100% - 48px));
+    max-width: var(--app-content) !important;
+    margin-inline: auto !important;
+}
+
+body > .container {
+    padding: 0 0 64px !important;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.logo,
+.page-title,
+.card-title,
+.section-title {
+    font-family: "Space Grotesk", sans-serif !important;
+    letter-spacing: 0 !important;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    color: var(--app-text);
+}
+
+h1,
+.page-title,
+.page-title h1 {
+    background: none !important;
+    color: var(--app-text) !important;
+    -webkit-text-fill-color: currentColor !important;
+    text-align: left;
+}
+
+.page-title,
+.page-title h1 {
+    font-size: clamp(1.75rem, 4vw, 2.6rem) !important;
+    line-height: 1.1;
+}
+
+.page-title p,
+.page-subtitle,
+.subtitle,
+.muted,
+.help-text,
+.form-help,
+.description {
+    color: var(--app-muted) !important;
+}
+
+a {
+    text-underline-offset: 3px;
+}
+
+/* Shared operational header */
+body > .container > header,
+body > header,
+.app-header,
+.topbar {
+    min-height: 64px;
+    margin: 0 0 36px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--app-line) !important;
+    background: rgba(13, 16, 14, 0.94) !important;
+    box-shadow: none !important;
+}
+
+body > .container > header,
+.app-header .app-header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+}
+
+body > header {
+    padding-inline: max(24px, calc((100% - var(--app-content)) / 2)) !important;
+}
+
+.header-left,
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.header-right {
+    min-width: 0;
+    justify-content: flex-end;
+}
+
+.logo {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 10px;
+    margin: 0 !important;
+    background: none !important;
+    color: var(--app-text) !important;
+    -webkit-text-fill-color: currentColor !important;
+    font-size: 1.1rem !important;
+    font-weight: 600 !important;
+    white-space: nowrap;
+}
+
+.logo::before {
+    content: "DT";
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--app-accent);
+    color: var(--app-accent);
+    font: 600 0.68rem "Space Grotesk", sans-serif;
+    -webkit-text-fill-color: currentColor;
+}
+
+header nav,
+.app-nav {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 2px !important;
+}
+
+header nav a,
+.app-nav a {
+    min-height: 38px;
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    margin: 0 !important;
+    padding: 9px 11px !important;
+    border: 0 !important;
+    border-bottom: 2px solid transparent !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    color: var(--app-muted) !important;
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+header nav a:hover,
+header nav a.active,
+.app-nav a:hover,
+.app-nav a.active {
+    border-bottom-color: var(--app-accent) !important;
+    color: var(--app-text) !important;
+}
+
+.wallet-balance-display,
+.live-balance,
+.env-chip {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 !important;
+    padding: 7px 10px !important;
+    border: 1px solid color-mix(in srgb, var(--app-accent) 32%, transparent) !important;
+    border-radius: var(--app-radius) !important;
+    background: var(--app-accent-soft) !important;
+    color: var(--app-muted) !important;
+    font-size: 0.75rem !important;
+    white-space: nowrap;
+}
+
+.balance-amount,
+.wallet-balance-display strong,
+.live-balance strong,
+.env-chip strong {
+    color: var(--app-accent) !important;
+    font-size: 0.82rem !important;
+}
+
+/* Surfaces */
+.card,
+.panel,
+.form-container,
+.table-container,
+.empty-state,
+.offer-card,
+.swap-card,
+.confirmation-card,
+.market-card,
+.management-card,
+.news-section,
+.stats-card,
+.info-card,
+.settings-section,
+.content-section,
+.detail-card,
+.order-card,
+.position-card,
+.upload-card,
+.file-card {
+    border: 1px solid var(--app-line) !important;
+    border-radius: var(--app-radius) !important;
+    background: var(--app-surface) !important;
+    box-shadow: var(--app-shadow) !important;
+}
+
+.card,
+.panel,
+.form-container,
+.confirmation-card,
+.settings-section,
+.content-section,
+.detail-card {
+    padding: clamp(18px, 3vw, 28px) !important;
+}
+
+.card:hover,
+.management-card:hover,
+.market-card:hover,
+.offer-card:hover,
+.file-card:hover {
+    border-color: var(--app-line-strong) !important;
+    background: var(--app-surface-raised) !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+.card h2,
+.panel h2,
+.section-heading h2,
+.section-header h2 {
+    color: var(--app-text) !important;
+    font-size: 1.15rem !important;
+}
+
+.management-section,
+.features-section,
+.quick-actions,
+.action-grid {
+    gap: 10px !important;
+}
+
+.management-card {
+    min-height: 132px;
+    padding: 18px !important;
+    text-align: left !important;
+}
+
+.management-card-icon,
+.empty-state-icon {
+    color: var(--app-accent) !important;
+    font-size: 1.35rem !important;
+}
+
+/* Forms and controls */
+label {
+    color: var(--app-text-secondary) !important;
+    font-weight: 500 !important;
+}
+
+input,
+select,
+textarea {
+    max-width: 100%;
+    border: 1px solid var(--app-line) !important;
+    border-radius: var(--app-radius) !important;
+    background: var(--app-input) !important;
+    color: var(--app-text) !important;
+    font-family: inherit !important;
+    letter-spacing: 0 !important;
+}
+
+input,
+select {
+    min-height: 42px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    border-color: var(--app-accent) !important;
+    background: var(--app-surface-raised) !important;
+    box-shadow: 0 0 0 2px var(--app-accent-soft) !important;
+    outline: none !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: var(--app-muted) !important;
+    opacity: 0.75;
+}
+
+select option {
+    background: var(--app-surface);
+    color: var(--app-text);
+}
+
+button,
+.btn,
+.btn-nav,
+.submit,
+.asset-action,
+.btn-create,
+.filter-btn,
+.action-button {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 0 14px !important;
+    border: 1px solid var(--app-line-strong) !important;
+    border-radius: var(--app-radius) !important;
+    background: var(--app-surface-raised) !important;
+    color: var(--app-text) !important;
+    box-shadow: none !important;
+    font-family: inherit !important;
+    font-size: 0.875rem !important;
+    font-weight: 500 !important;
+    letter-spacing: 0 !important;
+    line-height: 1.2;
+    text-decoration: none !important;
+    text-transform: none !important;
+    cursor: pointer;
+    transform: none !important;
+}
+
+button:hover,
+.btn:hover,
+.btn-nav:hover,
+.submit:hover,
+.asset-action:hover,
+.btn-create:hover,
+.filter-btn:hover,
+.action-button:hover {
+    border-color: var(--app-accent) !important;
+    background: var(--app-accent-soft) !important;
+    color: var(--app-accent) !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+.btn-primary,
+.submit,
+button[type="submit"]:not(.btn-danger):not(.btn-secondary),
+.btn-create {
+    border-color: var(--app-accent) !important;
+    background: var(--app-accent) !important;
+    color: var(--app-accent-ink) !important;
+}
+
+.btn-primary:hover,
+.submit:hover,
+button[type="submit"]:not(.btn-danger):not(.btn-secondary):hover,
+.btn-create:hover {
+    border-color: var(--app-accent-strong) !important;
+    background: var(--app-accent-strong) !important;
+    color: var(--app-accent-ink) !important;
+}
+
+.btn-danger,
+button.btn-danger,
+.danger-button {
+    border-color: var(--app-danger) !important;
+    background: var(--app-danger-soft) !important;
+    color: var(--app-danger) !important;
+}
+
+button:disabled,
+.btn:disabled,
+.disabled {
+    cursor: not-allowed !important;
+    opacity: 0.5 !important;
+}
+
+/* Data and status */
+.table-container,
+.table-wrapper {
+    max-width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--app-line) !important;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse !important;
+    border-color: var(--app-line) !important;
+    background: var(--app-surface) !important;
+}
+
+thead,
+body.theme-light thead {
+    background: var(--app-surface-raised) !important;
+}
+
+th,
+td {
+    padding: 12px 14px !important;
+    border-color: var(--app-line) !important;
+}
+
+th {
+    color: var(--app-muted) !important;
+    font-size: 0.72rem !important;
+    font-weight: 500 !important;
+    letter-spacing: 0 !important;
+    text-transform: uppercase;
+}
+
+td {
+    color: var(--app-text-secondary) !important;
+}
+
+tbody tr:hover {
+    background: var(--app-surface-raised) !important;
+}
+
+.price-positive,
+.side-buy,
+.status-active,
+.status-verified,
+.status-broadcasted,
+.success,
+.positive {
+    color: var(--app-accent) !important;
+}
+
+.price-negative,
+.side-sell,
+.status-failed,
+.status-invalid,
+.negative {
+    color: var(--app-danger) !important;
+}
+
+.badge,
+.status-badge,
+.instrument-badge,
+.asset-badge,
+.network-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 3px 7px !important;
+    border: 1px solid var(--app-line) !important;
+    border-radius: 999px !important;
+    background: var(--app-surface-raised) !important;
+    color: var(--app-text-secondary) !important;
+    font-size: 0.7rem !important;
+    font-weight: 500 !important;
+    letter-spacing: 0 !important;
+}
+
+.alert,
+.message,
+.messages > div {
+    border: 1px solid color-mix(in srgb, var(--app-info) 40%, transparent) !important;
+    border-radius: var(--app-radius) !important;
+    background: var(--app-info-soft) !important;
+    color: var(--app-text-secondary) !important;
+    box-shadow: none !important;
+}
+
+.alert-error,
+.message.error,
+.messages .error {
+    border-color: color-mix(in srgb, var(--app-danger) 45%, transparent) !important;
+    background: var(--app-danger-soft) !important;
+    color: var(--app-danger) !important;
+}
+
+.alert-warning,
+.message.warning,
+.messages .warning {
+    border-color: color-mix(in srgb, var(--app-warning) 45%, transparent) !important;
+    background: var(--app-warning-soft) !important;
+    color: var(--app-warning) !important;
+}
+
+.alert-success,
+.message.success,
+.messages .success {
+    border-color: color-mix(in srgb, var(--app-accent) 45%, transparent) !important;
+    background: var(--app-accent-soft) !important;
+    color: var(--app-accent) !important;
+}
+
+code,
+pre,
+.monospace,
+.txid,
+.address {
+    border-color: var(--app-line) !important;
+    background: var(--app-input) !important;
+    color: var(--app-text-secondary) !important;
+    font-family: "SFMono-Regular", Consolas, monospace !important;
+    overflow-wrap: anywhere;
+}
+
+/* Dense work surfaces */
+.page-actions,
+.quick-nav,
+.button-row,
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px !important;
+}
+
+.page-heading,
+.section-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 24px;
+}
+
+.page-heading .page-title,
+.page-heading .page-subtitle,
+.section-heading h2,
+.section-heading p {
+    margin-top: 0 !important;
+}
+
+.page-heading .page-title,
+.section-heading h2 {
+    margin-bottom: 6px !important;
+}
+
+.page-heading .page-subtitle,
+.section-heading p {
+    margin-bottom: 0 !important;
+}
+
+.wallet-summary .section-heading {
+    align-items: center;
+    margin-bottom: 18px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--app-line);
+}
+
+.management-card-icon {
+    font-family: "SFMono-Regular", Consolas, monospace !important;
+    font-size: 0.7rem !important;
+    font-weight: 600;
+}
+
+.filters {
+    display: flex;
+    max-width: 100%;
+    align-items: center;
+    gap: 6px !important;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.filter-btn.active {
+    border-color: var(--app-accent) !important;
+    background: var(--app-accent-soft) !important;
+    color: var(--app-accent) !important;
+}
+
+hr {
+    border: 0;
+    border-top: 1px solid var(--app-line);
+}
+
+@media (max-width: 980px) {
+    body > .container,
+    body > main,
+    body > .page-shell,
+    body > .app-shell {
+        width: min(100% - 32px, var(--app-content));
+    }
+
+    body > .container > header,
+    body > header,
+    .app-header,
+    .topbar {
+        min-height: auto;
+        padding-block: 12px !important;
+    }
+
+    body > .container > header,
+    body > header,
+    .header-left,
+    .header-right {
+        align-items: flex-start !important;
+        flex-wrap: wrap !important;
+    }
+
+    .header-left,
+    .header-right {
+        width: 100%;
+    }
+
+    .header-right {
+        justify-content: flex-start;
+    }
+
+    header nav,
+    .app-nav {
+        order: 3;
+        width: 100%;
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        scrollbar-width: thin;
+    }
+
+    header nav a,
+    .app-nav a {
+        min-height: 40px;
+    }
+
+    .wallet-balance-display,
+    .live-balance,
+    .env-chip {
+        order: 2;
+    }
+
+    .main-content,
+    .content-grid,
+    .dashboard-grid,
+    .two-column,
+    .swap-layout,
+    .details-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+@media (max-width: 640px) {
+    body > .container,
+    body > main,
+    body > .page-shell,
+    body > .app-shell {
+        width: min(100% - 24px, var(--app-content));
+    }
+
+    body > .container {
+        padding-bottom: 36px !important;
+    }
+
+    body > .container > header,
+    body > header,
+    .app-header,
+    .topbar {
+        margin-bottom: 24px !important;
+    }
+
+    .page-title,
+    .page-title h1 {
+        font-size: 1.7rem !important;
+    }
+
+    .card,
+    .panel,
+    .form-container,
+    .confirmation-card,
+    .settings-section,
+    .content-section,
+    .detail-card {
+        padding: 16px !important;
+    }
+
+    .wallet-balance-display,
+    .live-balance,
+    .env-chip {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .page-heading,
+    .section-heading {
+        align-items: stretch;
+        flex-direction: column;
+        margin-bottom: 18px;
+    }
+
+    .page-heading .page-actions,
+    .section-heading .actions {
+        width: 100%;
+    }
+
+    .page-actions > *,
+    .quick-nav > *,
+    .button-row > *,
+    .actions > * {
+        flex: 1 1 calc(50% - 8px);
+    }
+
+    .management-section,
+    .features-section,
+    .quick-actions,
+    .action-grid,
+    .offers-grid,
+    .markets-grid,
+    .asset-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .wallet-field,
+    .detail-row,
+    .info-row,
+    .member-row {
+        align-items: flex-start !important;
+        flex-direction: column !important;
+    }
+
+    .wallet-field .value,
+    .detail-value,
+    .member-value {
+        width: 100%;
+        max-width: 100% !important;
+        text-align: left !important;
+    }
+
+    table {
+        min-width: 640px;
+    }
+
+    .table-container,
+    .table-wrapper,
+    .markets-table,
+    .orders-table {
+        max-width: calc(100vw - 24px);
+        overflow-x: auto;
+    }
+}

@@ -1,303 +1,177 @@
+{% load static market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DeFi Tome - Home</title>
+    <title>DeFi Tome</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/app-theme.css' %}">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        :root {
+            --page: #0d100e;
+            --surface: #141915;
+            --surface-raised: #1a201b;
+            --line: #2b332d;
+            --line-strong: #3b473e;
+            --text: #f0f5f1;
+            --muted: #98a49b;
+            --green: #62d98b;
+            --green-deep: #183b24;
+            --red: #f27c76;
         }
-        
-        /* Theme variables */
-        :root, .theme-dark, .theme- {
-            --bg-gradient-start: #0f172a;
-            --bg-gradient-end: #1e293b;
-            --text-primary: #e2e8f0;
-            --text-secondary: #cbd5e1;
-            --text-muted: #94a3b8;
-            --border-color: rgba(148, 163, 184, 0.2);
-            --card-bg: rgba(30, 41, 59, 0.8);
-            --card-bg-hover: rgba(59, 130, 246, 0.05);
-            --accent-primary: #3b82f6;
-            --accent-secondary: #8b5cf6;
-            --accent-light: #60a5fa;
-        }
-        
-        body.theme-light {
-            --bg-gradient-start: #f8fafc;
-            --bg-gradient-end: #e2e8f0;
-            --text-primary: #0f172a;
-            --text-secondary: #334155;
-            --text-muted: #64748b;
-            --border-color: rgba(148, 163, 184, 0.3);
-            --card-bg: rgba(255, 255, 255, 0.9);
-            --card-bg-hover: rgba(59, 130, 246, 0.05);
-            --accent-primary: #3b82f6;
-            --accent-secondary: #8b5cf6;
-            --accent-light: #2563eb;
-        }
-        
+        * { box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
-            color: var(--text-primary);
+            margin: 0;
             min-height: 100vh;
+            background: linear-gradient(rgba(98, 217, 139, .025) 1px, transparent 1px), linear-gradient(90deg, rgba(98, 217, 139, .025) 1px, transparent 1px), var(--page);
+            background-size: 32px 32px;
+            color: var(--text);
+            font-family: "IBM Plex Sans", sans-serif;
         }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-        
-        header {
+        a { color: inherit; }
+        .topbar {
+            min-height: 64px;
             display: flex;
+            align-items: center;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 3rem;
-            padding-bottom: 2rem;
-            border-bottom: 1px solid var(--border-color);
+            gap: 24px;
+            padding: 0 32px;
+            border-bottom: 1px solid var(--line);
+            background: rgba(13, 16, 14, .94);
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
-        
-        .logo {
-            font-size: 1.8rem;
-            font-weight: bold;
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+        .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 600 18px "Space Grotesk", sans-serif; }
+        .brand-mark { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--green); color: var(--green); font-size: 11px; }
+        .nav { display: flex; align-items: center; gap: 4px; }
+        .nav a { padding: 9px 12px; color: var(--muted); text-decoration: none; font-size: 14px; border-bottom: 2px solid transparent; }
+        .nav a:hover, .nav a.active { color: var(--text); border-color: var(--green); }
+        .network { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; text-transform: uppercase; }
+        .network-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+        main { width: min(1320px, calc(100% - 48px)); margin: 0 auto; padding: 36px 0 64px; }
+        .page-head { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 28px; }
+        .eyebrow { color: var(--green); font-size: 12px; font-weight: 600; text-transform: uppercase; }
+        h1, h2 { font-family: "Space Grotesk", sans-serif; letter-spacing: 0; }
+        h1 { margin: 6px 0 4px; font-size: clamp(28px, 4vw, 42px); }
+        .subhead { margin: 0; color: var(--muted); }
+        .balance { text-align: right; }
+        .balance span { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; }
+        .balance strong { font: 600 25px "Space Grotesk", sans-serif; }
+        .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); background: var(--surface); margin-bottom: 28px; }
+        .stat { min-width: 0; padding: 18px 20px; border-right: 1px solid var(--line); }
+        .stat:last-child { border-right: 0; }
+        .stat-label { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+        .stat-value { margin-top: 7px; font: 600 21px "Space Grotesk", sans-serif; overflow-wrap: anywhere; }
+        .stat-value.green { color: var(--green); }
+        .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 34px; }
+        .action { min-height: 42px; display: inline-flex; align-items: center; gap: 8px; padding: 0 14px; border: 1px solid var(--line-strong); background: var(--surface); text-decoration: none; font-weight: 500; font-size: 14px; }
+        .action:hover { border-color: var(--green); background: var(--green-deep); }
+        .action.primary { border-color: var(--green); background: var(--green); color: #071009; }
+        .action svg { width: 16px; height: 16px; }
+        .workspace { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, .8fr); gap: 28px; }
+        .section { min-width: 0; }
+        .section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+        .section-head h2 { margin: 0; font-size: 18px; }
+        .section-head a { color: var(--green); text-decoration: none; font-size: 13px; }
+        .data-panel, .swap-list { border: 1px solid var(--line); background: var(--surface); overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 14px 16px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+        th:first-child, td:first-child { text-align: left; }
+        th { color: var(--muted); font-size: 11px; text-transform: uppercase; font-weight: 500; }
+        td { font-size: 14px; }
+        tbody tr:last-child td { border-bottom: 0; }
+        tbody tr:hover, .swap-row:hover { background: var(--surface-raised); }
+        .pair-link { text-decoration: none; font-weight: 600; }
+        .pair-link:hover { color: var(--green); }
+        .positive { color: var(--green); }
+        .negative { color: var(--red); }
+        .swap-row { display: block; padding: 16px; text-decoration: none; border-bottom: 1px solid var(--line); }
+        .swap-row:last-child { border-bottom: 0; }
+        .swap-assets { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 600; }
+        .swap-assets i { color: var(--green); font-style: normal; }
+        .swap-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+        .empty { padding: 28px 18px; color: var(--muted); text-align: center; }
+        @media (max-width: 900px) {
+            .topbar { padding: 12px 20px; align-items: flex-start; flex-wrap: wrap; }
+            .nav { order: 3; width: 100%; overflow-x: auto; }
+            .nav a { flex: 0 0 auto; }
+            main { width: min(100% - 32px, 1320px); padding-top: 28px; }
+            .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .stat:nth-child(2) { border-right: 0; }
+            .stat:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+            .workspace { grid-template-columns: 1fr; }
         }
-        
-        nav {
-            display: flex;
-            align-items: center;
-        }
-
-        .env-chip {
-            margin-left: 1.5rem;
-            padding: 0.45rem 0.75rem;
-            border-radius: 999px;
-            border: 1px solid var(--border-color);
-            background: var(--card-bg);
-            color: var(--text-secondary);
-            font-size: 0.78rem;
-            letter-spacing: 0.2px;
-            white-space: nowrap;
-        }
-
-        .env-chip strong {
-            color: var(--accent-light);
-            font-weight: 700;
-        }
-        
-        nav a {
-            color: var(--text-secondary);
-            text-decoration: none;
-            margin-left: 2rem;
-            transition: color 0.3s;
-        }
-        
-        nav a:hover {
-            color: var(--accent-primary);
-        }
-        
-        .hero {
-            text-align: center;
-            margin-bottom: 4rem;
-        }
-        
-        .hero h1 {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-            background: linear-gradient(135deg, var(--accent-light), #a78bfa);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        
-        .hero p {
-            font-size: 1.2rem;
-            color: var(--text-muted);
-            margin-bottom: 2rem;
-        }
-        
-        .main-content {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 2rem;
-        }
-        
-        .features-section {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 1.5rem;
-        }
-        
-        .feature-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 2rem;
-            transition: all 0.3s;
-            cursor: pointer;
-        }
-        
-        .feature-card:hover {
-            border-color: var(--accent-primary);
-            background: var(--card-bg-hover);
-            transform: translateY(-4px);
-        }
-        
-        .feature-card-link {
-            text-decoration: none;
-            color: inherit;
-        }
-        
-        .feature-card h3 {
-            margin-bottom: 0.5rem;
-            color: var(--accent-light);
-        }
-        
-        .feature-card p {
-            font-size: 0.9rem;
-            color: var(--text-muted);
-        }
-        
-        .news-section {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 2rem;
-        }
-        
-        .news-section h2 {
-            margin-bottom: 1.5rem;
-            color: var(--accent-light);
-        }
-        
-        .news-item {
-            padding: 1.5rem;
-            border-bottom: 1px solid var(--border-color);
-            transition: background 0.3s;
-        }
-        
-        .news-item:last-child {
-            border-bottom: none;
-        }
-        
-        .news-item:hover {
-            background: var(--card-bg-hover);
-            border-radius: 8px;
-        }
-        
-        .news-item h4 {
-            color: var(--text-primary);
-            margin-bottom: 0.5rem;
-        }
-        
-        .news-item .date {
-            font-size: 0.8rem;
-            color: var(--text-muted);
-            margin-bottom: 0.5rem;
-        }
-        
-        .news-item p {
-            font-size: 0.95rem;
-            color: var(--text-secondary);
-        }
-        
-        .news-item .price-info {
-            color: var(--accent-light);
-            margin-top: 0.5rem;
-        }
-        
-        @media (max-width: 768px) {
-            .main-content {
-                grid-template-columns: 1fr;
-            }
-            
-            .features-section {
-                grid-template-columns: 1fr;
-            }
-            
-            .hero h1 {
-                font-size: 2rem;
-            }
-
-            .env-chip {
-                display: none;
-            }
+        @media (max-width: 560px) {
+            .page-head { align-items: flex-start; flex-direction: column; }
+            .balance { text-align: left; }
+            .stats { grid-template-columns: 1fr; }
+            .stat { border-right: 0; border-bottom: 1px solid var(--line); }
+            .stat:last-child { border-bottom: 0; }
+            .action { flex: 1 1 calc(50% - 10px); justify-content: center; }
+            .table-scroll { overflow-x: auto; }
         }
     </style>
 </head>
 <body class="theme-{{ user_theme }}">
-    <div class="container">
-        <header>
-            <div class="logo">DeFi Tome</div>
-            <nav>
-                <a href="{% url 'testnet_home' %}">DeFi</a>
-                <a href="{% url 'explorer' %}">Explorer</a>
-                <a href="{% url 'listings' %}">Atomic Swaps</a>
-                <a href="{% url 'portfolio' %}">Portfolio</a>
-                <a href="{% url 'api_docs' %}">Docs</a>
-                <a href="{% url 'settings' %}">Settings</a>
-                <span class="env-chip">Network: <strong>{{ user_network_display }}</strong> | RPC: <strong>{{ user_rpc_endpoint_display }}</strong></span>
-            </nav>
-        </header>
-        
-        <section class="hero">
-            <h1>Welcome to DeFi Tome</h1>
-            <p>Your gateway to decentralized finance insights and analysis</p>
+    <header class="topbar">
+        <a class="brand" href="{% url 'home' %}"><span class="brand-mark">DT</span>DeFi Tome</a>
+        <nav class="nav" aria-label="Primary navigation">
+            <a class="active" href="{% url 'home' %}">Overview</a>
+            <a href="{% url 'portfolio' %}">Wallet</a>
+            <a href="{% url 'markets' %}">Markets</a>
+            <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
+            <a href="{% url 'explorer' %}">Explorer</a>
+            <a href="{% url 'media_list' %}">Media</a>
+        </nav>
+        <div class="network"><span class="network-dot"></span>{{ network_mode }}</div>
+    </header>
+    <main>
+        <section class="page-head">
+            <div><div class="eyebrow">{{ network_mode }} workspace</div><h1>Good to see you, {{ user.username }}</h1><p class="subhead">Wallet, markets, and settlement activity in one place.</p></div>
+            <div class="balance"><span>Last synced wallet balance</span><strong>{% if user_wallet_balance is not None %}{{ user_wallet_balance|floatformat:8 }} EVR{% else %}No wallet{% endif %}</strong></div>
         </section>
-        
-        <div class="main-content">
-            <section class="features-section">
-                <a href="{% url 'testnet_home' %}" class="feature-card-link">
-                    <div class="feature-card">
-                        <h3>🚀 DeFi Testnet</h3>
-                        <p>Swap tokens and manage liquidity pools</p>
-                    </div>
-                </a>
-                <a href="{% url 'explorer' %}" class="feature-card-link">
-                    <div class="feature-card">
-                        <h3>📊 Explorer</h3>
-                        <p>Track blockchain data and transactions</p>
-                    </div>
-                </a>
-                <a href="{% url 'listings' %}" class="feature-card-link">
-                    <div class="feature-card">
-                        <h3>Atomic Swaps</h3>
-                        <p>Exchange Evrmore assets and NFTs for EVR</p>
-                    </div>
-                </a>
-                <a href="{% url 'api_docs' %}" class="feature-card-link">
-                    <div class="feature-card">
-                        <h3>⚡ API</h3>
-                        <p>Build with our developer tools</p>
-                    </div>
-                </a>
+        <section class="stats" aria-label="Account summary">
+            <div class="stat"><div class="stat-label">Active markets shown</div><div class="stat-value green">{{ markets|length }}</div></div>
+            <div class="stat"><div class="stat-label">Available swaps</div><div class="stat-value">{{ available_swaps|length }}</div></div>
+            <div class="stat"><div class="stat-label">Open orders</div><div class="stat-value">{{ open_order_count }}</div></div>
+            <div class="stat"><div class="stat-label">My swap offers</div><div class="stat-value">{{ open_offer_count }}</div></div>
+        </section>
+        <nav class="actions" aria-label="Quick actions">
+            <a class="action primary" href="{% url 'dex_orderbook' %}"><i data-lucide="candlestick-chart"></i>Trade</a>
+            <a class="action" href="{% url 'send_funds' %}"><i data-lucide="send"></i>Send</a>
+            <a class="action" href="{% url 'recieve_funds' %}"><i data-lucide="download"></i>Receive</a>
+            <a class="action" href="{% url 'create_listing' %}"><i data-lucide="repeat-2"></i>Create atomic swap</a>
+            <a class="action" href="{% url 'media_upload' %}"><i data-lucide="upload"></i>Upload metadata</a>
+        </nav>
+        <div class="workspace">
+            <section class="section">
+                <div class="section-head"><h2>Markets</h2><a href="{% url 'markets' %}">View all markets</a></div>
+                <div class="data-panel table-scroll">
+                    {% if markets %}<table><thead><tr><th>Pair</th><th>Last</th><th>24h</th><th>Volume</th></tr></thead><tbody>
+                    {% for market in markets %}<tr>
+                        <td><a class="pair-link" href="{% url 'dex_orderbook' %}?pair={{ market.id }}" title="{{ market.base_token }}/{{ market.quote_token }}">{{ market.base_token|market_symbol }}/{{ market.quote_token|market_symbol }}</a></td>
+                        <td>{{ market.last_price|floatformat:8 }}</td>
+                        <td class="{% if market.price_change_24h > 0 %}positive{% elif market.price_change_24h < 0 %}negative{% endif %}">{{ market.price_change_24h|floatformat:2 }}%</td>
+                        <td>{{ market.volume_24h|floatformat:4 }}</td>
+                    </tr>{% endfor %}</tbody></table>{% else %}<div class="empty">No active markets on this network.</div>{% endif %}
+                </div>
             </section>
-            
-            <section class="news-section">
-                <h2>Recent Atomic Swaps</h2>
-                {% if listings %}
-                    {% for listing in listings %}
-                    <div class="news-item">
-                        <h4>{{ listing.item.title }}</h4>
-                        <div class="date">{{ listing.listing_date|date:"M d, Y" }} by {{ listing.seller.username }}</div>
-                        <p>{{ listing.item.description|truncatewords:20 }}</p>
-                        <p class="price-info">EVR per unit: {{ listing.price }} | Offered: {{ listing.quantity_available }}</p>
-                    </div>
-                    {% endfor %}
-                {% else %}
-                    <div class="news-item">
-                        <h4>No Atomic Swaps Yet</h4>
-                        <p>Be the first to publish an on-chain asset offer.</p>
-                    </div>
-                {% endif %}
+            <section class="section">
+                <div class="section-head"><h2>Atomic swaps</h2><a href="{% url 'available_swap_offers' %}">Browse all swaps</a></div>
+                <div class="swap-list">
+                    {% for offer in available_swaps %}<a class="swap-row" href="{% url 'accept_swap_offer' offer.id %}">
+                        <div class="swap-assets"><span>{{ offer.request_amount }} {{ offer.request_token|market_symbol }}</span><i>for</i><span>{{ offer.offer_token|market_symbol }}</span></div>
+                        <div class="swap-meta"><span>{{ offer.initiator.username }}</span><span>Expires {{ offer.expires_at|date:"M j, H:i" }}</span></div>
+                    </a>{% empty %}<div class="empty">No atomic swaps are currently available.</div>{% endfor %}
+                </div>
             </section>
         </div>
-    </div>
+    </main>
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+    <script>if (window.lucide) { window.lucide.createIcons(); }</script>
 </body>
 </html>

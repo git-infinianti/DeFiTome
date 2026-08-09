@@ -167,6 +167,50 @@
             font-family: monospace;
             font-size: 0.9rem;
         }
+
+        .uri-hover-trigger {
+            position: relative;
+            display: inline-block;
+            color: var(--accent-light);
+            cursor: help;
+            text-decoration: underline dotted;
+            text-underline-offset: 0.15rem;
+            outline: none;
+        }
+
+        .uri-hover-value {
+            position: absolute;
+            left: 0;
+            top: calc(100% + 0.45rem);
+            min-width: 280px;
+            max-width: min(90vw, 560px);
+            padding: 0.7rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: var(--card-bg);
+            color: var(--text-primary);
+            word-break: break-all;
+            z-index: 10;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+        }
+
+        .uri-hover-trigger:hover .uri-hover-value,
+        .uri-hover-trigger:focus .uri-hover-value,
+        .uri-hover-trigger:focus-visible .uri-hover-value {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .uri-copy-status {
+            margin-left: 0.4rem;
+            color: #4ade80;
+            font-size: 0.8rem;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
         
         .button-group {
             display: flex;
@@ -217,6 +261,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="container">
@@ -229,7 +274,7 @@
         
         <div class="page-title">
             <h1>Edit Media</h1>
-            <p>Re-upload to IPFS or view details</p>
+            <p>View IPFS metadata</p>
         </div>
         
         {% if messages %}
@@ -250,13 +295,27 @@
                 
                 <div class="info-item">
                     <div class="info-label">📁 File Name</div>
-                    <div class="info-value">{{ upload.file_stored_on_ipfs.name|default:"Unnamed File" }}</div>
+                    <div class="info-value">{{ upload.display_filename }}</div>
                 </div>
                 
                 {% if upload.ipfs_hash %}
                 <div class="info-item">
                     <div class="info-label">🔗 IPFS Hash</div>
-                    <div class="info-value monospace">{{ upload.ipfs_hash }}</div>
+                    <div class="info-value monospace">
+                        <span class="uri-hover-trigger uri-copy-trigger" tabindex="0" role="button" data-uri="{{ upload.ipfs_hash }}">CID (hover to reveal, click to copy)
+                            <span class="uri-copy-status" aria-live="polite"></span>
+                            <span class="uri-hover-value">{{ upload.ipfs_hash }}</span>
+                        </span>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">🌐 IPFS URI</div>
+                    <div class="info-value monospace">
+                        <span class="uri-hover-trigger uri-copy-trigger" tabindex="0" role="button" data-uri="{{ upload.ipfs_uri }}">URI (hover to reveal, click to copy)
+                            <span class="uri-copy-status" aria-live="polite"></span>
+                            <span class="uri-hover-value">{{ upload.ipfs_uri }}</span>
+                        </span>
+                    </div>
                 </div>
                 {% else %}
                 <div class="info-item" style="background: rgba(245, 158, 11, 0.1);">
@@ -273,9 +332,67 @@
             
             <div class="button-group">
                 <a href="{% url 'media_list' %}" class="btn btn-secondary">Cancel</a>
-                <button type="submit" class="btn btn-primary">🔄 Re-upload to IPFS</button>
+                <button type="submit" class="btn btn-primary">ℹ️ Refresh Notice</button>
             </div>
         </form>
     </div>
+    <script>
+        (function () {
+            const triggers = document.querySelectorAll('.uri-copy-trigger');
+
+            async function copyFromTrigger(trigger) {
+                const uri = trigger.getAttribute('data-uri') || '';
+                if (!uri) {
+                    return;
+                }
+
+                const status = trigger.querySelector('.uri-copy-status');
+
+                try {
+                    if (navigator.clipboard && window.isSecureContext) {
+                        await navigator.clipboard.writeText(uri);
+                    } else {
+                        const textarea = document.createElement('textarea');
+                        textarea.value = uri;
+                        textarea.setAttribute('readonly', '');
+                        textarea.style.position = 'absolute';
+                        textarea.style.left = '-9999px';
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                    }
+
+                    if (status) {
+                        status.textContent = 'Copied';
+                        setTimeout(() => {
+                            status.textContent = '';
+                        }, 1500);
+                    }
+                } catch (error) {
+                    if (status) {
+                        status.textContent = 'Copy failed';
+                        setTimeout(() => {
+                            status.textContent = '';
+                        }, 2000);
+                    }
+                }
+            }
+
+            triggers.forEach((trigger) => {
+                trigger.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    copyFromTrigger(trigger);
+                });
+
+                trigger.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        copyFromTrigger(trigger);
+                    }
+                });
+            });
+        })();
+    </script>
 </body>
 </html>

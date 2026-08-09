@@ -1,3 +1,4 @@
+{% load market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -381,6 +382,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
 <body class="theme-{{ user_theme }}">
     <div class="shell">
@@ -441,7 +443,7 @@
                         <tbody>
                             {% for result in lookup_results %}
                             <tr>
-                                <td class="mono">{{ result.asset_name }}</td>
+                                <td class="mono" title="{{ result.asset_name|asset_tooltip }}">{{ result.asset_name|market_symbol }}</td>
                                 <td>{{ result.tag_type|default:"Unknown" }}</td>
                                 <td class="mono">{{ result.ipfs_cid|default:"Unavailable" }}</td>
                                 <td>
@@ -484,7 +486,7 @@
                         <tbody>
                             {% for tag in tags %}
                             <tr>
-                                <td class="mono">{{ tag.asset_name }}</td>
+                                <td class="mono" title="{{ tag.asset_name|asset_tooltip }}">{{ tag.asset_name|market_symbol }}</td>
                                 <td class="mono">{{ tag.target_address }}</td>
                                 <td class="mono">{{ tag.ipfs_cid|default:"Pending" }}</td>
                                 <td>

@@ -16,7 +16,9 @@ Use the evrmore-engineer skill whenever the request or edited files involve any 
 1. Load the skill at .github/skills/evrmore-engineer/SKILL.md.
 2. Follow the skill procedure, decision points, and completion criteria.
 3. Prefer existing project RPC wrappers before introducing new RPC plumbing.
-4. Use the skill assets and script when applicable:
+4. For asset-changing operations related to issuance, reissuance, transfers, settlement, or channel creation, prefer manual raw transaction construction and signing helpers over node-side convenience RPC methods when a raw path exists.
+5. Treat this raw-transaction preference as the default design choice for future EVRMore RPC work in this workspace unless the user explicitly requests otherwise.
+6. Use the skill assets and script when applicable:
 - .github/skills/evrmore-engineer/scripts/rpc_health_check.py
 - .github/skills/evrmore-engineer/scripts/local_rpc_backup_probe.py
 - .github/skills/evrmore-engineer/assets/trading-session-report-template.md

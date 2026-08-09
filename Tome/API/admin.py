@@ -1,5 +1,12 @@
 from django.contrib import admin
-from .models import SolidityContract, ContractInteraction, ContractAsset, APIKey
+from .models import (
+    SolidityContract,
+    ContractInteraction,
+    ContractAsset,
+    APIKey,
+    MessageChannelPolicy,
+    AtomicSwapTransferMessage,
+)
 
 
 @admin.register(SolidityContract)
@@ -99,3 +106,47 @@ class APIKeyAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+
+
+@admin.register(MessageChannelPolicy)
+class MessageChannelPolicyAdmin(admin.ModelAdmin):
+    list_display = [
+        'channel_key',
+        'channel_name',
+        'network_mode',
+        'version',
+        'status',
+        'chain_metadata_status',
+        'owner_account',
+        'manager_account',
+        'is_locked',
+    ]
+    list_filter = ['network_mode', 'status', 'chain_metadata_status', 'is_locked', 'created_at']
+    search_fields = ['channel_key', 'channel_name', 'owner_account__username', 'manager_account__username']
+    readonly_fields = [
+        'rules_checksum',
+        'metadata_ipfs_cid',
+        'issuance_txid',
+        'chain_metadata_status',
+        'chain_metadata_error',
+        'chain_metadata_checked_at',
+        'revision_burn_txid',
+        'revision_burned_at',
+        'created_at',
+        'updated_at',
+    ]
+
+
+@admin.register(AtomicSwapTransferMessage)
+class AtomicSwapTransferMessageAdmin(admin.ModelAdmin):
+    list_display = [
+        'swap_offer',
+        'stage',
+        'status',
+        'policy',
+        'payload_ipfs_cid',
+        'created_at',
+    ]
+    list_filter = ['status', 'stage', 'created_at']
+    search_fields = ['swap_offer__id', 'stage', 'payload_ipfs_cid', 'broadcast_result']
+    readonly_fields = ['payload_checksum', 'created_at']

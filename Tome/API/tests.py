@@ -3,9 +3,22 @@ from django.contrib.auth.models import User
 from django.urls import reverse
 from unittest.mock import patch
 import json
+from decimal import Decimal
 
-from .models import APIKey, SolidityContract, ContractInteraction, ContractAsset
+from .models import (
+    APIKey,
+    SolidityContract,
+    ContractInteraction,
+    ContractAsset,
+    MessageChannelPolicy,
+)
 from .rpc import EvrmoreRPC
+from Wallet.models import UserWallet, WalletAddress
+from API.channel_console_service import (
+    burn_channel_asset_for_revision,
+    create_channel_console_asset_for_user,
+    set_channel_subscription,
+)
 
 
 class NFTMintEndpointTestCase(TestCase):
@@ -20,8 +33,7 @@ class NFTMintEndpointTestCase(TestCase):
             key_prefix=self.raw_api_key[:8],
         )
 
-    @patch('API.views.evrmore_rpc.issue_unique_asset', return_value='mint-transaction-id')
-    def test_mint_nft_issues_an_evrmore_unique_asset(self, mock_issue_unique_asset):
+    def test_mint_nft_endpoint_is_locked_down(self):
         response = self.client.post(
             reverse('nft_mint'),
             data=json.dumps({
@@ -33,15 +45,43 @@ class NFTMintEndpointTestCase(TestCase):
             HTTP_X_API_KEY=self.raw_api_key,
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['nft_asset_name'], 'COLLECTIBLE#001')
-        self.assertEqual(response.json()['tx_hash'], 'mint-transaction-id')
-        mock_issue_unique_asset.assert_called_once_with(
-            root_name='COLLECTIBLE',
-            asset_tags=['001'],
-            ipfs_hashes=['QmExample'],
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json().get('success'))
+
+
+class IssueAssetWrapperTestCase(TestCase):
+    @patch('API.rpc.RPC')
+    def test_issue_asset_passes_full_parameter_shape_and_defaults_remintable(self, mock_rpc):
+        mock_rpc.issue.return_value = 'issue-txid'
+        rpc_client = EvrmoreRPC()
+
+        result = rpc_client.issue_asset(
+            asset_name='ROOT~OPS',
+            qty=1,
             to_address='',
             change_address='',
+            units=0,
+            reissuable=False,
+            has_ipfs=True,
+            ipfs_hash='QmCid',
+        )
+
+        self.assertEqual(result, 'issue-txid')
+        mock_rpc.issue.assert_called_once_with(
+            'ROOT~OPS',
+            1,
+            '',
+            '',
+            0,
+            False,
+            True,
+            'QmCid',
+            '',
+            0,
+            '',
+            False,
+            False,
+            False,
         )
 
     @patch.object(EvrmoreRPC, 'issue_unique_asset', return_value='mint-transaction-id')
@@ -105,32 +145,10 @@ class ContractListTestCase(TestCase):
             password='testpass123'
         )
     
-    def test_list_contracts_empty(self):
-        """Test listing contracts when none exist"""
+    def test_contract_list_is_locked_down(self):
         response = self.client.get(self.contracts_url)
-        self.assertEqual(response.status_code, 200)
-        
-        data = response.json()
-        self.assertTrue(data.get('success'))
-        self.assertEqual(len(data.get('contracts', [])), 0)
-    
-    def test_list_contracts_with_data(self):
-        """Test listing contracts when some exist"""
-        # Create test contracts
-        SolidityContract.objects.create(
-            name='Test Contract',
-            contract_address='TEST_ASSET',
-            deployer=self.user,
-            description='Test description'
-        )
-        
-        response = self.client.get(self.contracts_url)
-        self.assertEqual(response.status_code, 200)
-        
-        data = response.json()
-        self.assertTrue(data.get('success'))
-        self.assertEqual(len(data.get('contracts', [])), 1)
-        self.assertEqual(data['contracts'][0]['name'], 'Test Contract')
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json().get('success'))
     
     def test_create_contract_requires_auth(self):
         """Test that creating a contract requires authentication"""
@@ -146,7 +164,7 @@ class ContractListTestCase(TestCase):
             content_type='application/json'
         )
         
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, 403)
         data = response.json()
         self.assertFalse(data.get('success'))
     
@@ -166,13 +184,8 @@ class ContractListTestCase(TestCase):
             content_type='application/json'
         )
         
-        self.assertEqual(response.status_code, 201)
-        data = response.json()
-        self.assertTrue(data.get('success'))
-        self.assertIn('contract', data)
-        
-        # Verify contract was created
-        self.assertTrue(SolidityContract.objects.filter(name='New Contract').exists())
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json().get('success'))
     
     def test_create_contract_missing_fields(self):
         """Test that creating a contract fails with missing required fields"""
@@ -189,7 +202,7 @@ class ContractListTestCase(TestCase):
             content_type='application/json'
         )
         
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 403)
         data = response.json()
         self.assertFalse(data.get('success'))
 
@@ -218,21 +231,16 @@ class ContractDetailTestCase(TestCase):
         url = reverse('contract_detail', kwargs={'contract_id': self.contract.id})
         response = self.client.get(url)
         
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertTrue(data.get('success'))
-        self.assertEqual(data['contract']['name'], 'Test Contract')
-        self.assertEqual(data['contract']['contract_address'], 'TEST_ASSET')
-        self.assertIn('abi', data['contract'])
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json().get('success'))
     
     def test_get_nonexistent_contract(self):
         """Test getting details of non-existent contract"""
         url = reverse('contract_detail', kwargs={'contract_id': 99999})
         response = self.client.get(url)
         
-        self.assertEqual(response.status_code, 404)
-        data = response.json()
-        self.assertFalse(data.get('success'))
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json().get('success'))
 
 
 class ContractInteractionTestCase(TestCase):
@@ -284,15 +292,8 @@ class ContractInteractionTestCase(TestCase):
             content_type='application/json'
         )
         
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertTrue(data.get('success'))
-        
-        # Verify interaction was recorded
-        self.assertTrue(ContractInteraction.objects.filter(
-            contract=self.contract,
-            function_name='testFunction'
-        ).exists())
+        self.assertEqual(response.status_code, 401)
+        self.assertFalse(response.json().get('success'))
     
     def test_interact_missing_function_name(self):
         """Test that interaction fails without function_name"""
@@ -309,7 +310,55 @@ class ContractInteractionTestCase(TestCase):
             content_type='application/json'
         )
         
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 401)
+
+
+class AllowedRpcProcedureApiTestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='rpc-user', password='testpass123')
+        self.api_key = 'rpc-api-key'
+        APIKey.objects.create(
+            user=self.user,
+            name='RPC key',
+            key_hash=APIKey.hash_key(self.api_key),
+            key_prefix=self.api_key[:8],
+        )
+
+    def test_rpc_procedure_catalog_is_available(self):
+        response = self.client.get(reverse('rpc_procedures'))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload.get('success'))
+        self.assertTrue(any(group['category'] == 'Addressindex' for group in payload.get('catalog', [])))
+
+    @patch('API.rpc_procedure_registry.evrmore_rpc.client.getblockchaininfo', return_value={'chain': 'test', 'blocks': 123})
+    def test_rpc_execute_allows_whitelisted_procedure(self, mock_getblockchaininfo):
+        response = self.client.post(
+            reverse('rpc_execute'),
+            data=json.dumps({'procedure': 'getblockchaininfo', 'params': []}),
+            content_type='application/json',
+            HTTP_X_API_KEY=self.api_key,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(payload.get('procedure'), 'getblockchaininfo')
+        self.assertEqual(payload.get('result', {}).get('chain'), 'test')
+        mock_getblockchaininfo.assert_called_once_with()
+
+    def test_rpc_execute_rejects_non_whitelisted_procedure(self):
+        response = self.client.post(
+            reverse('rpc_execute'),
+            data=json.dumps({'procedure': 'issue', 'params': ['BAD', 1]}),
+            content_type='application/json',
+            HTTP_X_API_KEY=self.api_key,
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json().get('success'))
 
 
 class AssetsListTestCase(TestCase):
@@ -468,4 +517,630 @@ class ModelTestCase(TestCase):
                 asset_name='UNIQUE_TOKEN',
                 quantity=200
             )
+
+
+class StrictMessageChannelTestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='strict-api-user', password='testpass123')
+        self.api_key = 'strict-api-key'
+        APIKey.objects.create(
+            user=self.user,
+            name='Strict channel key',
+            key_hash=APIKey.hash_key(self.api_key),
+            key_prefix=self.api_key[:8],
+        )
+        self.system_user = User.objects.create_user(username='system', password='unused')
+        self.admin_user = User.objects.create_user(username='admin', password='unused')
+        self.policy = MessageChannelPolicy.objects.create(
+            channel_key='atomic_swap_transfer',
+            channel_name='MSG.SWAP.TRANSFER',
+            network_mode='testnet',
+            version=1,
+            status='active',
+            owner_account=self.system_user,
+            manager_account=self.admin_user,
+            schema_name='defitome.atomic-swap-transfer-message',
+            schema_version=1,
+            allowed_stages=['offer_created', 'settlement_lock_created'],
+            strict_rules={
+                'console_mode': 'strict',
+                'immutable_payload': True,
+                'allow_unregistered_keys': False,
+            },
+            is_locked=True,
+        )
+
+    def test_send_message_endpoint_is_locked_down(self):
+        payload = {
+            'event_type': 'atomic_swap_transfer',
+            'event_version': 1,
+            'event_id': 'evt-1',
+            'created_at': '2026-08-07T00:00:00+00:00',
+            'network_mode': 'testnet',
+            'swap_offer_id': 42,
+            'stage': 'offer_created',
+            'initiator': 'seller',
+            'counterparty': 'buyer',
+            'offer_token': 'COLLECTIBLE#001',
+            'offer_amount': '1',
+            'request_token': 'EVR',
+            'request_amount': '2',
+            'txid': '',
+            'details': {'actor': 'seller'},
+        }
+
+        response = self.client.post(
+            reverse('send_message'),
+            data=json.dumps({
+                'channel_key': 'atomic_swap_transfer',
+                'network_mode': 'testnet',
+                'payload': payload,
+            }),
+            content_type='application/json',
+            HTTP_X_API_KEY=self.api_key,
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json().get('success'))
+
+    def test_send_message_endpoint_remains_locked_down_for_invalid_stage_payloads(self):
+        payload = {
+            'event_type': 'atomic_swap_transfer',
+            'event_version': 1,
+            'event_id': 'evt-2',
+            'created_at': '2026-08-07T00:00:00+00:00',
+            'network_mode': 'testnet',
+            'swap_offer_id': 43,
+            'stage': 'settlement_broadcasted',
+            'initiator': 'seller',
+            'counterparty': 'buyer',
+            'offer_token': 'COLLECTIBLE#001',
+            'offer_amount': '1',
+            'request_token': 'EVR',
+            'request_amount': '2',
+            'txid': '',
+            'details': {'actor': 'seller'},
+        }
+
+        response = self.client.post(
+            reverse('send_message'),
+            data=json.dumps({
+                'channel_key': 'atomic_swap_transfer',
+                'network_mode': 'testnet',
+                'payload': payload,
+            }),
+            content_type='application/json',
+            HTTP_X_API_KEY=self.api_key,
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json().get('success'))
+
+
+class ChannelConsoleAssetWorkflowTestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(
+            username='admin-channel-user',
+            password='testpass123',
+            is_staff=True,
+        )
+        self.api_key = 'admin-channel-api-key'
+        APIKey.objects.create(
+            user=self.user,
+            name='Channel console key',
+            key_hash=APIKey.hash_key(self.api_key),
+            key_prefix=self.api_key[:8],
+        )
+
+    def test_create_channel_console_asset_endpoint_is_locked_down(self):
+        response = self.client.post(
+            reverse('create_channel_console_asset'),
+            data=json.dumps({
+                'admin_asset': 'ROOT!',
+                'channel_tag': 'SWAPFLOW',
+                'channel_key': 'root_swapflow_console',
+                'metadata': {
+                    'description': 'Atomic swap transfer console',
+                    'allowed_stages': ['offer_created', 'settlement_lock_created'],
+                    'strict_rules': {
+                        'console_mode': 'strict',
+                        'immutable_payload': True,
+                        'allow_unregistered_keys': False,
+                    },
+                },
+            }),
+            content_type='application/json',
+            HTTP_X_API_KEY=self.api_key,
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json().get('success'))
+
+    def test_scan_channel_console_assets_endpoint_is_locked_down(self):
+        response = self.client.get(reverse('scan_channel_console_assets'))
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json().get('success'))
+
+
+class ChannelConsoleServiceTestCase(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='service-admin',
+            password='testpass123',
+            is_staff=True,
+        )
+        self.user_wallet = UserWallet.objects.create(
+            user=self.user,
+            name='Service Wallet',
+            entropy='service-entropy',
+            passphrase='',
+        )
+        WalletAddress.objects.create(
+            wallet=self.user_wallet,
+            network_mode='testnet',
+            address='EAddrOne',
+            wif='L1one',
+            account=0,
+            index=0,
+            is_change=False,
+        )
+        WalletAddress.objects.create(
+            wallet=self.user_wallet,
+            network_mode='testnet',
+            address='EAddrTwo',
+            wif='L1two',
+            account=0,
+            index=1,
+            is_change=True,
+        )
+
+    @patch('API.channel_console_service.evrmore_rpc.list_assets', side_effect=ConnectionError('node unavailable'))
+    def test_channel_scan_reports_rpc_failure(self, _mock_list_assets):
+        from API.channel_console_service import scan_channel_console_assets
+
+        result = scan_channel_console_assets(count=50, start=0)
+
+        self.assertEqual(result['scan_error'], 'node unavailable')
+        self.assertEqual(result['scanned_count'], 0)
+        self.assertFalse(result['has_more'])
+
+    @patch('API.channel_console_service.KuboAPIUploader.download_json')
+    @patch('API.channel_console_service.evrmore_rpc.get_asset_data')
+    @patch('API.channel_console_service.evrmore_rpc.list_assets')
+    def test_channel_scan_returns_valid_console_and_pagination(
+        self,
+        mock_list_assets,
+        mock_get_asset_data,
+        mock_download_json,
+    ):
+        from API.channel_console_service import scan_channel_console_assets
+
+        mock_list_assets.return_value = ['ROOT~OPS']
+        mock_get_asset_data.return_value = {'ipfs_hash': 'QmConsoleCid'}
+        mock_download_json.return_value = {
+            'schema': 'defitome.messaging-channel-console',
+            'version': 1,
+            'asset_name': 'ROOT~OPS',
+            'channel_key': 'root_ops_console',
+            'channel_name': 'ROOT~OPS',
+            'allowed_stages': ['offer_created', 'market_created', 'order_created'],
+            'strict_rules': {'console_mode': 'strict'},
+            'console_type': 'dex_events',
+        }
+
+        result = scan_channel_console_assets(count=1, start=4)
+
+        self.assertEqual(result['valid_channels'][0]['asset_name'], 'ROOT~OPS')
+        self.assertEqual(result['next_start'], 5)
+        self.assertTrue(result['has_more'])
+
+    @patch('API.channel_console_service.evrmore_rpc.view_all_message_channels', return_value=['ROOT~OPS'])
+    @patch('API.channel_console_service.get_active_rpc_endpoint_mode', return_value='local')
+    @patch('API.channel_console_service.KuboAPIUploader.download_json')
+    @patch('API.channel_console_service.evrmore_rpc.get_asset_data', return_value={'ipfs_hash': 'QmConsoleCid'})
+    @patch('API.channel_console_service.evrmore_rpc.list_assets', return_value=[])
+    def test_verified_scan_backfills_metadata_for_every_policy_version(
+        self,
+        _mock_list_assets,
+        _mock_get_asset_data,
+        mock_download_json,
+        _mock_endpoint_mode,
+        _mock_subscriptions,
+    ):
+        from API.channel_console_service import scan_channel_console_assets
+
+        for version in (1, 2):
+            MessageChannelPolicy.objects.create(
+                channel_key='root_ops_console',
+                channel_name='ROOT~OPS',
+                network_mode='testnet',
+                version=version,
+                status='active' if version == 2 else 'deprecated',
+                owner_account=self.user,
+                manager_account=self.user,
+                allowed_stages=['offer_created'],
+            )
+        mock_download_json.return_value = {
+            'schema': 'defitome.messaging-channel-console',
+            'version': 1,
+            'asset_name': 'ROOT~OPS',
+            'channel_key': 'root_ops_console',
+            'channel_name': 'ROOT~OPS',
+            'allowed_stages': ['offer_created'],
+            'strict_rules': {'console_mode': 'strict'},
+        }
+
+        result = scan_channel_console_assets(network_mode='testnet')
+
+        self.assertTrue(result['valid_channels'][0]['is_subscribed'])
+        policies = MessageChannelPolicy.objects.filter(channel_name='ROOT~OPS')
+        self.assertEqual(policies.filter(metadata_ipfs_cid='QmConsoleCid').count(), 2)
+        self.assertEqual(
+            policies.filter(chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED).count(),
+            2,
+        )
+
+    @patch('API.channel_console_service.evrmore_rpc.view_all_message_channels')
+    @patch('API.channel_console_service.get_active_rpc_endpoint_mode', return_value='public')
+    @patch('API.channel_console_service.KuboAPIUploader.download_json')
+    @patch('API.channel_console_service.evrmore_rpc.get_asset_data', return_value={'ipfs_hash': 'QmConsoleCid'})
+    @patch('API.channel_console_service.evrmore_rpc.list_assets', return_value=['ROOT~OPS'])
+    def test_public_channel_scan_skips_node_local_subscription_rpc(
+        self,
+        _mock_list_assets,
+        _mock_get_asset_data,
+        mock_download_json,
+        _mock_endpoint_mode,
+        mock_subscriptions,
+    ):
+        from API.channel_console_service import scan_channel_console_assets
+
+        mock_download_json.return_value = {
+            'schema': 'defitome.messaging-channel-console',
+            'version': 1,
+            'asset_name': 'ROOT~OPS',
+            'channel_key': 'root_ops_console',
+            'channel_name': 'ROOT~OPS',
+            'allowed_stages': ['offer_created'],
+            'strict_rules': {'console_mode': 'strict'},
+        }
+
+        result = scan_channel_console_assets(network_mode='testnet')
+
+        mock_subscriptions.assert_not_called()
+        self.assertFalse(result['subscription_state_available'])
+        self.assertIsNone(result['valid_channels'][0]['is_subscribed'])
+
+    @patch('API.channel_console_service.evrmore_rpc.subscribe_to_channel', return_value=[])
+    @patch('API.channel_console_service.KuboAPIUploader.download_json')
+    @patch('API.channel_console_service.evrmore_rpc.get_asset_data', return_value={'ipfs_hash': 'QmConsoleCid'})
+    def test_subscription_requires_and_uses_verified_channel_metadata(
+        self,
+        _mock_get_asset_data,
+        mock_download_json,
+        mock_subscribe,
+    ):
+        mock_download_json.return_value = {
+            'schema': 'defitome.messaging-channel-console',
+            'version': 1,
+            'asset_name': 'ROOT~OPS',
+            'channel_key': 'root_ops_console',
+            'channel_name': 'ROOT~OPS',
+            'allowed_stages': ['offer_created'],
+            'strict_rules': {'console_mode': 'strict'},
+        }
+
+        result = set_channel_subscription('root~ops', True, network_mode='testnet')
+
+        self.assertTrue(result['subscribed'])
+        mock_subscribe.assert_called_once_with('ROOT~OPS')
+
+    @patch('API.channel_console_service.evrmore_rpc.subscribe_to_channel')
+    @patch('API.channel_console_service.evrmore_rpc.get_asset_data', return_value={})
+    def test_subscription_rejects_channel_without_chain_metadata(self, _mock_get_asset_data, mock_subscribe):
+        with self.assertRaisesMessage(ValueError, 'was not found'):
+            set_channel_subscription('ROOT~OPS', True, network_mode='testnet')
+
+        mock_subscribe.assert_not_called()
+
+    @patch('API.channel_console_service.create_and_send_asset_transfer_transaction', return_value={'txid': 'burn-txid'})
+    @patch('API.channel_console_service.RPC.getburnaddresses', return_value={'global_burn_address': 'n1BurnAddress'})
+    @patch('API.channel_console_service.evrmore_rpc.list_asset_balances_by_address', return_value={'ROOT~OPS': Decimal('1')})
+    def test_revision_burn_uses_raw_transfer_and_source_preserving_change(
+        self,
+        _mock_balances,
+        _mock_burn_addresses,
+        mock_raw_transfer,
+    ):
+        policy = MessageChannelPolicy.objects.create(
+            channel_key='root_ops_console',
+            channel_name='ROOT~OPS',
+            network_mode='testnet',
+            version=1,
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=['offer_created'],
+        )
+
+        result = burn_channel_asset_for_revision(self.user, 'ROOT~OPS', network_mode='testnet')
+
+        self.assertEqual(result['txid'], 'burn-txid')
+        mock_raw_transfer.assert_called_once_with(
+            from_address='EAddrOne',
+            to_address='n1BurnAddress',
+            asset_name='ROOT~OPS',
+            asset_quantity=Decimal('1'),
+            change_address='EAddrOne',
+            asset_change_address='EAddrOne',
+            wif_keys=['L1one'],
+        )
+        policy.refresh_from_db()
+        self.assertEqual(policy.status, 'deprecated')
+        self.assertEqual(policy.revision_burn_txid, 'burn-txid')
+        self.assertIsNotNone(policy.revision_burned_at)
+
+    @patch('API.channel_console_service.KuboAPIUploader.download_json')
+    @patch('API.channel_console_service.evrmore_rpc.get_asset_data')
+    @patch('API.channel_console_service.evrmore_rpc.list_assets', return_value=['ROOT~PERMANENT'])
+    def test_channel_scan_accepts_permanent_ipfs_hash_field(
+        self,
+        _mock_list_assets,
+        mock_get_asset_data,
+        mock_download_json,
+    ):
+        from API.channel_console_service import scan_channel_console_assets
+
+        mock_get_asset_data.return_value = {'permanent_ipfs_hash': 'QmPermanentCid'}
+        mock_download_json.return_value = {
+            'schema': 'defitome.messaging-channel-console',
+            'version': 1,
+            'asset_name': 'ROOT~PERMANENT',
+            'channel_key': 'permanent_console',
+            'channel_name': 'ROOT~PERMANENT',
+            'allowed_stages': ['offer_created'],
+            'strict_rules': {'console_mode': 'strict'},
+        }
+
+        result = scan_channel_console_assets(network_mode='testnet')
+
+        self.assertEqual(result['valid_channels'][0]['ipfs_cid'], 'QmPermanentCid')
+
+    @patch('API.channel_console_service.evrmore_rpc.get_asset_data', return_value=None)
+    @patch('API.channel_console_service.evrmore_rpc.list_assets', return_value=[])
+    def test_channel_scan_keeps_unconfirmed_issuance_pending(self, _mock_list_assets, _mock_get_asset_data):
+        from API.channel_console_service import scan_channel_console_assets
+
+        policy = MessageChannelPolicy.objects.create(
+            channel_key='pending_console',
+            channel_name='ROOT~PENDING',
+            network_mode='testnet',
+            version=1,
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=['offer_created'],
+            metadata_ipfs_cid='QmPendingCid',
+            issuance_txid='pending-txid',
+        )
+
+        result = scan_channel_console_assets(network_mode='testnet')
+
+        self.assertEqual(result['pending_channels'][0]['asset_name'], 'ROOT~PENDING')
+        self.assertFalse(result['invalid_channels'])
+        policy.refresh_from_db()
+        self.assertEqual(policy.chain_metadata_status, MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING)
+
+    @patch('API.channel_console_service.KuboAPIUploader.download_json')
+    @patch('API.channel_console_service.evrmore_rpc.get_asset_data')
+    @patch('API.channel_console_service.evrmore_rpc.list_assets', return_value=[])
+    @patch('API.channel_console_service.get_current_network_mode', return_value='testnet')
+    def test_channel_scan_includes_configured_policy_when_middle_wildcard_returns_empty(
+        self,
+        _mock_network_mode,
+        _mock_list_assets,
+        mock_get_asset_data,
+        mock_download_json,
+    ):
+        from API.channel_console_service import scan_channel_console_assets
+
+        MessageChannelPolicy.objects.create(
+            channel_key='configured_console',
+            channel_name='ROOT~CONFIGURED',
+            network_mode='testnet',
+            version=1,
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=['offer_created'],
+        )
+        mock_get_asset_data.return_value = {'ipfs_hash': 'QmConfiguredCid'}
+        mock_download_json.return_value = {
+            'schema': 'defitome.messaging-channel-console',
+            'version': 1,
+            'asset_name': 'ROOT~CONFIGURED',
+            'channel_key': 'configured_console',
+            'channel_name': 'ROOT~CONFIGURED',
+            'allowed_stages': ['offer_created'],
+            'strict_rules': {'console_mode': 'strict'},
+        }
+
+        result = scan_channel_console_assets(asset_pattern='*~*', count=50, start=0)
+
+        self.assertEqual(result['valid_channels'][0]['asset_name'], 'ROOT~CONFIGURED')
+
+    @patch('API.channel_console_service.create_and_send_issue_asset_transaction', return_value={'txid': 'txid-1'})
+    @patch('API.channel_console_service.KuboAPIUploader.upload_bytes')
+    @patch('API.channel_console_service.evrmore_rpc.list_asset_balances_by_address')
+    def test_create_channel_aggregates_balances_and_auto_increments_policy_version(
+        self,
+        mock_balances,
+        mock_upload_bytes,
+        _mock_issue_asset,
+    ):
+        class UploadResult:
+            def __init__(self, cid):
+                self.cid = cid
+
+        mock_upload_bytes.return_value = UploadResult('QmMetaCid')
+
+        def _balance_side_effect(address):
+            if address == 'EAddrOne':
+                return {'ROOT!': Decimal('0.5')}
+            if address == 'EAddrTwo':
+                return {'ROOT!': Decimal('0.75')}
+            return {}
+
+        mock_balances.side_effect = _balance_side_effect
+
+        payload = {
+            'admin_asset': 'ROOT!',
+            'channel_tag': 'OPS',
+            'channel_key': 'root_ops_console',
+            'network_mode': 'testnet',
+            'metadata': {
+                'allowed_stages': ['offer_created'],
+                'strict_rules': {
+                    'console_mode': 'strict',
+                    'immutable_payload': True,
+                    'allow_unregistered_keys': False,
+                },
+            },
+        }
+
+        first = create_channel_console_asset_for_user(self.user, payload)
+        second = create_channel_console_asset_for_user(self.user, payload)
+
+        self.assertEqual(first['channel_policy']['version'], 1)
+        self.assertEqual(second['channel_policy']['version'], 2)
+
+        active = MessageChannelPolicy.objects.get(
+            channel_key='root_ops_console',
+            network_mode='testnet',
+            version=2,
+        )
+        old = MessageChannelPolicy.objects.get(
+            channel_key='root_ops_console',
+            network_mode='testnet',
+            version=1,
+        )
+        self.assertEqual(active.status, 'active')
+        self.assertEqual(old.status, 'deprecated')
+        self.assertCountEqual(first['owned_addresses'], ['EAddrOne', 'EAddrTwo'])
+
+    @patch('API.channel_console_service.create_and_send_issue_asset_transaction', return_value={'txid': 'txid-raw-1'})
+    @patch('API.channel_console_service.KuboAPIUploader.upload_bytes')
+    @patch('API.channel_console_service.evrmore_rpc.list_asset_balances_by_address', return_value={'ROOT!': Decimal('1')})
+    def test_create_channel_uses_manual_issue_transaction_helper(
+        self,
+        _mock_balances,
+        mock_upload_bytes,
+        mock_issue_helper,
+    ):
+        class UploadResult:
+            def __init__(self, cid):
+                self.cid = cid
+
+        mock_upload_bytes.return_value = UploadResult('QmMetaCid')
+
+        result = create_channel_console_asset_for_user(self.user, {
+            'admin_asset': 'ROOT!',
+            'channel_tag': 'OPS',
+            'channel_key': 'root_ops_console_manual',
+            'network_mode': 'testnet',
+            'metadata': {
+                'allowed_stages': ['offer_created'],
+                'strict_rules': {'console_mode': 'strict'},
+            },
+        })
+
+        self.assertEqual(result['txid'], 'txid-raw-1')
+        policy = MessageChannelPolicy.objects.get(channel_key='root_ops_console_manual')
+        self.assertEqual(policy.metadata_ipfs_cid, 'QmMetaCid')
+        self.assertEqual(policy.issuance_txid, 'txid-raw-1')
+        self.assertEqual(policy.chain_metadata_status, MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING)
+        mock_issue_helper.assert_called_once_with(
+            from_address='EAddrOne',
+            issuer_address='EAddrOne',
+            asset_name='ROOT~OPS',
+            asset_quantity=Decimal('1'),
+            units=0,
+            reissuable=False,
+            has_ipfs=True,
+            ipfs_hash='QmMetaCid',
+            wif_keys=['L1one'],
+            owner_change_address='EAddrOne',
+        )
+
+    @patch('API.channel_console_service.create_and_send_issue_asset_transaction', return_value={'txid': 'txid-1'})
+    @patch('API.channel_console_service.KuboAPIUploader.upload_bytes')
+    @patch('API.channel_console_service.evrmore_rpc.list_asset_balances_by_address', return_value={'ROOT!': Decimal('1')})
+    def test_create_channel_rejects_custom_qty_for_one_of_one_channel_assets(
+        self,
+        _mock_balances,
+        mock_upload_bytes,
+        _mock_issue_asset,
+    ):
+        class UploadResult:
+            def __init__(self, cid):
+                self.cid = cid
+
+        mock_upload_bytes.return_value = UploadResult('QmMetaCid')
+
+        with self.assertRaisesMessage(ValueError, 'Messaging channel assets are fixed at quantity 1'):
+            create_channel_console_asset_for_user(self.user, {
+                'admin_asset': 'ROOT!',
+                'channel_tag': 'OPS',
+                'channel_key': 'root_ops_console',
+                'network_mode': 'testnet',
+                'qty': '2',
+                'metadata': {
+                    'allowed_stages': ['offer_created'],
+                    'strict_rules': {'console_mode': 'strict'},
+                },
+            })
+
+    @patch('API.channel_console_service.evrmore_rpc.list_asset_balances_by_address', return_value={'ROOT!': Decimal('1')})
+    def test_create_channel_rejects_invalid_channel_asset_name(self, _mock_balances):
+        with self.assertRaisesMessage(ValueError, 'channel asset name exceeds max length'):
+            create_channel_console_asset_for_user(self.user, {
+                'admin_asset': 'THISISAREALLYLONGROOTASSETNAME!',
+                'channel_tag': 'OPS',
+                'channel_key': 'root_ops_console',
+                'network_mode': 'testnet',
+                'metadata': {
+                    'allowed_stages': ['offer_created'],
+                    'strict_rules': {'console_mode': 'strict'},
+                },
+            })
+
+    @patch('API.channel_console_service.evrmore_rpc.list_asset_balances_by_address', return_value={'ROOT!': Decimal('1')})
+    @patch('API.channel_console_service.evrmore_rpc.get_asset_data', return_value={'ipfs_hash': 'QmExistingCid'})
+    @patch('API.channel_console_service.KuboAPIUploader.download_json', return_value={
+        'schema': 'defitome.messaging-channel-console',
+        'version': 1,
+        'asset_name': 'ROOT~OPS',
+        'channel_key': 'different_key',
+        'channel_name': 'ROOT~OPS',
+        'description': '',
+        'allowed_stages': ['offer_created'],
+        'strict_rules': {'console_mode': 'strict'},
+        'console_type': 'atomic_swap_transfer',
+    })
+    def test_create_channel_rejects_existing_onchain_asset_bound_to_different_key(
+        self,
+        _mock_download_json,
+        _mock_get_asset_data,
+        _mock_balances,
+    ):
+        with self.assertRaisesMessage(ValueError, 'bound to a different channel key'):
+            create_channel_console_asset_for_user(self.user, {
+                'admin_asset': 'ROOT!',
+                'channel_tag': 'OPS',
+                'channel_key': 'root_ops_console',
+                'network_mode': 'testnet',
+                'metadata': {
+                    'allowed_stages': ['offer_created'],
+                    'strict_rules': {'console_mode': 'strict'},
+                },
+            })
 

@@ -1,3 +1,4 @@
+{% load static market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -269,8 +270,10 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="{% static 'css/market-dex.css' %}">
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
-<body>
+<body class="theme-{{ user_theme }}">
     <div class="container">
         <header>
             <div class="header-left">
@@ -278,12 +281,10 @@
             </div>
             <div class="header-right">
                 <nav>
-                    <a href="{% url 'home' %}">Home</a>
-                    <a href="{% url 'explorer' %}">Explorer</a>
-                    <a href="{% url 'listings' %}">Atomic Swaps</a>
-                    <a href="{% url 'dex_orderbook' %}">DEX</a>
-                    <a href="{% url 'lending_home' %}">Lending</a>
-                    <a href="{% url 'my_orders' %}">My Orders</a>
+                    <a href="{% url 'markets' %}">Markets</a>
+                    <a href="{% url 'dex_orderbook' %}">Trade</a>
+                    <a href="{% url 'my_orders' %}">Orders</a>
+                    <a href="{% url 'portfolio' %}">Portfolio</a>
                 </nav>
                 {% if has_wallet and user_wallet_balance is not None %}
                 <div class="wallet-balance-display">
@@ -329,7 +330,7 @@
                     <tbody>
                         {% for order in limit_orders %}
                         <tr>
-                            <td>{{ order.trading_pair.base_token }}/{{ order.trading_pair.quote_token }}</td>
+                            <td><span title="{{ order.trading_pair.base_token|asset_tooltip }}">{{ order.trading_pair.base_token|market_symbol }}</span>/<span title="{{ order.trading_pair.quote_token|asset_tooltip }}">{{ order.trading_pair.quote_token|market_symbol }}</span></td>
                             <td><span class="side-{{ order.side }}">{{ order.side|upper }}</span></td>
                             <td>{{ order.price }}</td>
                             <td>{{ order.quantity }}</td>
@@ -377,7 +378,7 @@
                     <tbody>
                         {% for order in stop_loss_orders %}
                         <tr>
-                            <td>{{ order.trading_pair.base_token }}/{{ order.trading_pair.quote_token }}</td>
+                            <td><span title="{{ order.trading_pair.base_token|asset_tooltip }}">{{ order.trading_pair.base_token|market_symbol }}</span>/<span title="{{ order.trading_pair.quote_token|asset_tooltip }}">{{ order.trading_pair.quote_token|market_symbol }}</span></td>
                             <td><span class="side-{{ order.side }}">{{ order.side|upper }}</span></td>
                             <td>{{ order.trigger_price }}</td>
                             <td>{{ order.quantity }}</td>
@@ -423,7 +424,7 @@
                     <tbody>
                         {% for order in market_orders %}
                         <tr>
-                            <td>{{ order.trading_pair.base_token }}/{{ order.trading_pair.quote_token }}</td>
+                            <td><span title="{{ order.trading_pair.base_token|asset_tooltip }}">{{ order.trading_pair.base_token|market_symbol }}</span>/<span title="{{ order.trading_pair.quote_token|asset_tooltip }}">{{ order.trading_pair.quote_token|market_symbol }}</span></td>
                             <td><span class="side-{{ order.side }}">{{ order.side|upper }}</span></td>
                             <td>{{ order.quantity }}</td>
                             <td>{{ order.executed_price|default:"-" }}</td>
@@ -459,7 +460,7 @@
                     <tbody>
                         {% for trade in trade_history %}
                         <tr>
-                            <td>{{ trade.trading_pair.base_token }}/{{ trade.trading_pair.quote_token }}</td>
+                            <td><span title="{{ trade.trading_pair.base_token|asset_tooltip }}">{{ trade.trading_pair.base_token|market_symbol }}</span>/<span title="{{ trade.trading_pair.quote_token|asset_tooltip }}">{{ trade.trading_pair.quote_token|market_symbol }}</span></td>
                             <td>
                                 {% if trade.buyer == user %}
                                 <span class="side-buy">BUY</span>

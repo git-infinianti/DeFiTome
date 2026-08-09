@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeFi Tome - Messaging Channel Management</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card: #111827;
+            --muted: #94a3b8;
+            --text: #e2e8f0;
+            --accent: #0ea5e9;
+            --ok: #10b981;
+            --error: #ef4444;
+            --border: #1f2937;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--text);
+            background: radial-gradient(circle at top right, #172554, var(--bg));
+        }
+
+        .container {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 1.25rem;
+        }
+
+        .top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 0.65rem 1rem;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            text-decoration: none;
+            color: var(--text);
+            background: #0b1220;
+        }
+
+        .btn:hover { border-color: var(--accent); }
+        .btn-danger { border-color: rgba(239, 68, 68, 0.5); color: #fecaca; }
+        .btn-danger:hover { border-color: var(--error); }
+
+        .grid {
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: 1fr;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .card {
+            background: linear-gradient(180deg, rgba(17,24,39,0.95), rgba(17,24,39,0.82));
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 1rem;
+        }
+
+        h1, h2 { margin: 0 0 0.75rem 0; }
+
+        .muted { color: var(--muted); }
+
+        .row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .field label {
+            display: block;
+            font-size: 0.9rem;
+            margin-bottom: 0.3rem;
+            color: var(--muted);
+        }
+
+        .field input, .field textarea, .field select {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 0.6rem 0.7rem;
+            color: var(--text);
+            background: #0b1220;
+        }
+
+        .field textarea { min-height: 96px; resize: vertical; }
+
+        .checkboxes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin: 0.4rem 0 1rem;
+        }
+
+        .checkboxes label {
+            color: var(--muted);
+            font-size: 0.92rem;
+        }
+
+        .submit {
+            background: var(--accent);
+            color: #001018;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            padding: 0.72rem 1rem;
+            cursor: pointer;
+        }
+
+        .alert {
+            border-radius: 10px;
+            padding: 0.7rem 0.9rem;
+            margin-bottom: 0.6rem;
+            border: 1px solid var(--border);
+        }
+
+        .alert.success { border-color: rgba(16,185,129,0.55); background: rgba(16,185,129,0.14); }
+        .alert.error { border-color: rgba(239,68,68,0.55); background: rgba(239,68,68,0.12); }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .table-scroll { overflow-x: auto; }
+
+        th, td {
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+            padding: 0.5rem 0.4rem;
+            font-size: 0.92rem;
+            vertical-align: top;
+        }
+
+        code {
+            background: #0b1220;
+            border: 1px solid var(--border);
+            padding: 0.05rem 0.28rem;
+            border-radius: 6px;
+        }
+
+        .breakable { overflow-wrap: anywhere; word-break: break-word; }
+        .status { font-weight: 600; }
+        .status-verified, .status-broadcasted { color: var(--ok); }
+        .status-failed, .status-invalid, .status-metadata_missing { color: #fca5a5; }
+        .status-pending, .status-recorded, .status-skipped { color: #fbbf24; }
+        details summary { cursor: pointer; color: var(--accent); }
+        details pre {
+            max-width: 42rem;
+            overflow: auto;
+            white-space: pre-wrap;
+            color: var(--text);
+            background: #0b1220;
+            border: 1px solid var(--border);
+            padding: 0.65rem;
+        }
+
+        @media (max-width: 768px) {
+            .container { padding: 0.8rem; }
+            .top { align-items: flex-start; flex-direction: column; }
+        }
+    </style>
+    <link rel="stylesheet" href="/static/css/app-theme.css">
+</head>
+<body class="theme-{{ user_theme }}">
+    <div class="container">
+        <div class="top">
+            <div>
+                <h1>Messaging Channel Management</h1>
+                <div class="muted">Create strict console channels under admin assets and verify chain-linked metadata.</div>
+            </div>
+            <a class="btn" href="{% url 'portfolio' %}">Back to Portfolio</a>
+        </div>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert {% if message.tags == 'error' %}error{% else %}success{% endif %}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+
+        <div class="grid">
+            <section class="card">
+                <h2>Create Channel Console Asset</h2>
+                <p class="muted">Active network: {{ active_network_mode }}</p>
+                {% if not is_testnet %}
+                <div class="alert error">Policy loading and proposal workflows are restricted to testnet. Mainnet creation stays explicit and conservative.</div>
+                {% endif %}
+                <form method="post" action="{% url 'messaging_channel_management' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="create_channel">
+                    <div class="row">
+                        <div class="field">
+                            <label for="admin_asset">Admin Asset (owned)</label>
+                            <select id="admin_asset" name="admin_asset" required>
+                                <option value="">Select an owned admin asset</option>
+                                {% for admin_asset in owned_admin_assets %}
+                                <option value="{{ admin_asset }}" {% if selected_admin_asset == admin_asset %}selected{% endif %}>{{ admin_asset }}</option>
+                                {% endfor %}
+                            </select>
+                            {% if not owned_admin_assets %}
+                            <div class="muted">No owned admin assets found on this network.</div>
+                            {% endif %}
+                        </div>
+                        <div class="field">
+                            <label for="channel_tag">Channel Tag</label>
+                            <input id="channel_tag" name="channel_tag" placeholder="SWAPFLOW" value="{{ selected_channel_tag }}" required>
+                        </div>
+                        <div class="field">
+                            <label for="channel_key">Channel Key</label>
+                            <input id="channel_key" name="channel_key" placeholder="root_swapflow_console" value="{{ selected_channel_key }}">
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="field">
+                            <label for="channel_name">Display Channel Name (optional)</label>
+                            <input id="channel_name" name="channel_name" placeholder="ROOT~SWAPFLOW" value="{{ selected_channel_name }}">
+                        </div>
+                        <div class="field">
+                            <label for="channel_version">Policy Version (optional)</label>
+                            <input id="channel_version" name="channel_version" type="number" min="1" step="1" placeholder="auto" value="{{ selected_channel_version }}" autocomplete="off">
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="field">
+                            <label for="network_mode">Network Mode</label>
+                            <input id="network_mode" name="network_mode" value="{{ active_network_mode }}" required>
+                        </div>
+                        <div class="field">
+                            <label for="to_address">To Address (optional)</label>
+                            <input id="to_address" name="to_address" placeholder="destination address">
+                        </div>
+                        <div class="field">
+                            <label for="change_address">Change Address (optional)</label>
+                            <input id="change_address" name="change_address" placeholder="change address">
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label for="description">Metadata Description</label>
+                        <textarea id="description" name="description" placeholder="Describe channel purpose and operator policy.">{{ selected_description }}</textarea>
+                    </div>
+                    <div class="field">
+                        <label for="allowed_stages">Allowed Stages (comma-separated)</label>
+                        <input id="allowed_stages" name="allowed_stages" value="{{ selected_allowed_stages|default:default_allowed_stages }}">
+                    </div>
+
+                    <div class="checkboxes">
+                        <label><input type="checkbox" name="immutable_payload" {% if selected_strict_rules.immutable_payload %}checked{% endif %}> Immutable payload</label>
+                        <label><input type="checkbox" name="allow_unregistered_keys" {% if selected_strict_rules.allow_unregistered_keys %}checked{% endif %}> Allow unregistered keys</label>
+                        <label><input type="checkbox" name="auto_broadcast" {% if selected_strict_rules.auto_broadcast %}checked{% endif %}> Auto broadcast</label>
+                    </div>
+
+                    <button class="submit" type="submit" {% if not owned_admin_assets %}disabled{% endif %}>Create Messaging Channel</button>
+                </form>
+
+                {% if creation_result %}
+                <div class="alert success" style="margin-top: 0.8rem;">
+                    Created <code>{{ creation_result.channel_asset_name }}</code> with CID <code>{{ creation_result.metadata_ipfs_cid }}</code> and TXID <code>{{ creation_result.txid }}</code>.
+                </div>
+                {% endif %}
+            </section>
+
+            {% if is_testnet and proposed_policies %}
+            <section class="card">
+                <h2>Proposed Policies</h2>
+                <p class="muted">These proposals are available only on testnet for evaluation. They are intentionally read-only and do not autofill the creation form.</p>
+                <div class="table-scroll"><table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Target Version</th>
+                            <th>Summary</th>
+                            <th>Changes</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for proposal in proposed_policies %}
+                        <tr>
+                            <td>{{ proposal.name }}</td>
+                            <td>v{{ proposal.target_version }}</td>
+                            <td>{{ proposal.summary }}</td>
+                            <td>{{ proposal.changes|join:" | " }}</td>
+                            <td>
+                                {% if selected_policy %}
+                                <form method="post" action="{% url 'messaging_channel_management' %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="promote_proposal_to_draft">
+                                    <input type="hidden" name="policy_id" value="{{ selected_policy.id }}">
+                                    <input type="hidden" name="proposal_version" value="{{ proposal.target_version }}">
+                                    <button type="submit" class="btn">Promote To Draft</button>
+                                </form>
+                                {% else %}
+                                <span class="muted">Load a policy first</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+            {% endif %}
+
+            {% if is_testnet and selected_policy %}
+            <section class="card">
+                <h2>Policy Diff Preview</h2>
+                <p class="muted">Current loaded policy versus the default next-version proposal loaded into the form.</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Field</th>
+                            <th>Current</th>
+                            <th>Proposed</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Channel Key</td>
+                            <td>{{ selected_policy.channel_key }}</td>
+                            <td>{{ selected_channel_key }}</td>
+                        </tr>
+                        <tr>
+                            <td>Channel Name</td>
+                            <td>{{ selected_policy.channel_name }}</td>
+                            <td>{{ selected_channel_name }}</td>
+                        </tr>
+                        <tr>
+                            <td>Version</td>
+                            <td>{{ selected_policy.version }}</td>
+                            <td>{{ selected_channel_version|add:"1" }}</td>
+                        </tr>
+                        <tr>
+                            <td>Allowed Stages</td>
+                            <td>{{ selected_policy.allowed_stages|join:", " }}</td>
+                            <td>{{ selected_allowed_stages }}</td>
+                        </tr>
+                        <tr>
+                            <td>Strict Rules</td>
+                            <td>{{ selected_policy.strict_rules }}</td>
+                            <td>{{ selected_strict_rules }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+            {% endif %}
+
+            <section class="card">
+                <h2>Managed Channel Policies</h2>
+                <p class="muted">Use load to prefill a new version, or deprecate active policies.</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Key</th>
+                            <th>Channel</th>
+                            <th>Network</th>
+                            <th>Version</th>
+                            <th>Status</th>
+                            <th>Chain Metadata</th>
+                            <th>Issuance</th>
+                            <th>Revision Burn</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for policy in managed_policies %}
+                        <tr>
+                            <td>{{ policy.channel_key }}</td>
+                            <td>{{ policy.channel_name }}</td>
+                            <td>{{ policy.network_mode }}</td>
+                            <td>{{ policy.version }}</td>
+                            <td>{{ policy.status }}</td>
+                            <td>
+                                <span class="status status-{{ policy.chain_metadata_status }}">{{ policy.get_chain_metadata_status_display }}</span>
+                                {% if policy.metadata_ipfs_cid %}<div class="muted breakable">{{ policy.metadata_ipfs_cid }}</div>{% endif %}
+                                {% if policy.chain_metadata_error %}<div class="breakable">{{ policy.chain_metadata_error }}</div>{% endif %}
+                            </td>
+                            <td class="breakable">{{ policy.issuance_txid|default:"Existing asset" }}</td>
+                            <td class="breakable">
+                                {% if policy.revision_burn_txid %}
+                                    {{ policy.revision_burn_txid }}
+                                    <div class="muted">{{ policy.revision_burned_at|date:"Y-m-d H:i:s" }}</div>
+                                {% else %}
+                                    <span class="muted">Not burned</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="actions">
+                                    {% if is_testnet %}
+                                    <a class="btn" href="{% url 'messaging_channel_management' %}?policy_id={{ policy.id }}">Load</a>
+                                    {% endif %}
+                                    {% if policy.status == 'active' %}
+                                    <form method="post" action="{% url 'messaging_channel_management' %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="deprecate_policy">
+                                        <input type="hidden" name="policy_id" value="{{ policy.id }}">
+                                        <button type="submit" class="btn btn-danger">Deprecate</button>
+                                    </form>
+                                    {% if not policy.revision_burn_txid %}
+                                    <form method="post" action="{% url 'messaging_channel_management' %}" onsubmit="return confirm('Permanently burn {{ policy.channel_name }}? The same asset name cannot be issued again; use a new channel tag for the revision.');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="burn_channel_revision">
+                                        <input type="hidden" name="asset_name" value="{{ policy.channel_name }}">
+                                        <input type="hidden" name="confirm_revision_burn" value="1">
+                                        <button type="submit" class="btn btn-danger">Burn for Revision</button>
+                                    </form>
+                                    {% endif %}
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="9" class="muted">No managed policies found.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table></div>
+            </section>
+
+            <section class="card">
+                <h2>Channel Console Scan</h2>
+                <p class="muted" id="scan-summary">Loading {{ active_network_mode }} channel scan...</p>
+                <div id="scan-error"></div>
+                {% if scan_result.scan_error %}
+                <div class="alert alert-error">Channel scan RPC error: {{ scan_result.scan_error }}</div>
+                {% endif %}
+                <div style="margin-bottom: 0.8rem;">
+                    <a class="btn" href="{% url 'messaging_channel_management' %}?export=scan_json">Export Scan JSON</a>
+                    <a class="btn" href="{% url 'messaging_channel_management' %}?export=scan_csv">Export Scan CSV</a>
+                    {% if scan_result.has_more %}
+                    <a class="btn" href="{% url 'messaging_channel_management' %}?start={{ scan_result.next_start }}">Scan Next Page</a>
+                    {% endif %}
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Asset</th>
+                            <th>Channel Key</th>
+                            <th>CID</th>
+                            <th>Stages</th>
+                            <th>Subscription</th>
+                        </tr>
+                    </thead>
+                    <tbody id="valid-channel-rows">
+                        {% for row in scan_result.valid_channels %}
+                        <tr>
+                            <td>{{ row.asset_name }}</td>
+                            <td>{{ row.channel_key }}</td>
+                            <td>{{ row.ipfs_cid }}</td>
+                            <td>{{ row.allowed_stages|join:", " }}</td>
+                            <td>
+                                {% if row.is_subscribed == True %}
+                                <form method="post" action="{% url 'messaging_channel_management' %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="unsubscribe_channel">
+                                    <input type="hidden" name="asset_name" value="{{ row.asset_name }}">
+                                    <button type="submit" class="btn">Unsubscribe</button>
+                                </form>
+                                {% elif row.is_subscribed == False %}
+                                <form method="post" action="{% url 'messaging_channel_management' %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="subscribe_channel">
+                                    <input type="hidden" name="asset_name" value="{{ row.asset_name }}">
+                                    <button type="submit" class="btn">Subscribe</button>
+                                </form>
+                                {% else %}
+                                <div class="actions">
+                                    <form method="post" action="{% url 'messaging_channel_management' %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="subscribe_channel">
+                                        <input type="hidden" name="asset_name" value="{{ row.asset_name }}">
+                                        <button type="submit" class="btn">Subscribe</button>
+                                    </form>
+                                    <form method="post" action="{% url 'messaging_channel_management' %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="unsubscribe_channel">
+                                        <input type="hidden" name="asset_name" value="{{ row.asset_name }}">
+                                        <button type="submit" class="btn">Unsubscribe</button>
+                                    </form>
+                                </div>
+                                <span class="muted">Current state unavailable</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="5" class="muted">No valid channel consoles found in this scan.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+
+                <div id="pending-channel-section" hidden>
+                <h3 style="margin-top: 1rem;">Pending Confirmation</h3>
+                <div class="table-scroll"><table>
+                    <thead><tr><th>Asset</th><th>Intended CID</th><th>Issuance Transaction</th></tr></thead>
+                    <tbody id="pending-channel-rows">
+                        {% for row in scan_result.pending_channels %}
+                        <tr>
+                            <td>{{ row.asset_name }}</td>
+                            <td class="breakable">{{ row.intended_ipfs_cid }}</td>
+                            <td class="breakable">{{ row.issuance_txid }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table></div></div>
+
+                <div id="invalid-channel-section" hidden>
+                <h3 style="margin-top: 1rem;">Invalid Channels</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Asset</th>
+                            <th>Intended CID</th>
+                            <th>Issuance Transaction</th>
+                            <th>Error</th>
+                        </tr>
+                    </thead>
+                    <tbody id="invalid-channel-rows">
+                        {% for row in scan_result.invalid_channels %}
+                        <tr>
+                            <td>{{ row.asset_name }}</td>
+                            <td class="breakable">{{ row.intended_ipfs_cid|default:"Unknown" }}</td>
+                            <td class="breakable">{{ row.issuance_txid|default:"Unknown" }}</td>
+                            <td class="breakable">{{ row.error }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table></div>
+            </section>
+
+            <section class="card">
+                <h2>Message Channel Console</h2>
+                <p class="muted">Raw swap and market broadcast activity on {{ active_network_mode }}. Most recent 200 matching events.</p>
+                <form method="get" action="{% url 'messaging_channel_management' %}">
+                    <div class="row">
+                        <div class="field">
+                            <label for="event_channel">Channel</label>
+                            <select id="event_channel" name="event_channel">
+                                <option value="">All channels</option>
+                                {% for policy in event_channels %}
+                                <option value="{{ policy.id }}" {% if event_filters.channel == policy.id|stringformat:"s" %}selected{% endif %}>{{ policy.channel_name }} v{{ policy.version }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="event_type">Event Type</label>
+                            <select id="event_type" name="event_type">
+                                <option value="" {% if not event_filters.event_type %}selected{% endif %}>All events</option>
+                                <option value="swap" {% if event_filters.event_type == "swap" %}selected{% endif %}>Swap</option>
+                                <option value="market" {% if event_filters.event_type == "market" %}selected{% endif %}>Market</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="event_status">Status</label>
+                            <select id="event_status" name="event_status">
+                                <option value="">All statuses</option>
+                                <option value="recorded" {% if event_filters.status == "recorded" %}selected{% endif %}>Recorded</option>
+                                <option value="broadcasted" {% if event_filters.status == "broadcasted" %}selected{% endif %}>Broadcasted</option>
+                                <option value="failed" {% if event_filters.status == "failed" %}selected{% endif %}>Failed</option>
+                                <option value="skipped" {% if event_filters.status == "skipped" %}selected{% endif %}>Skipped</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="event_stage">Stage</label>
+                            <input id="event_stage" name="event_stage" value="{{ event_filters.stage }}" placeholder="order_created">
+                        </div>
+                    </div>
+                    <div class="actions">
+                        <button class="submit" type="submit">Apply Filters</button>
+                        <a class="btn" href="{% url 'messaging_channel_management' %}">Clear</a>
+                    </div>
+                </form>
+
+                <div class="table-scroll" style="margin-top: 1rem;"><table>
+                    <thead>
+                        <tr>
+                            <th>Time</th><th>Channel</th><th>Event</th><th>Stage</th><th>Status</th>
+                            <th>Actor</th><th>Payload CID</th><th>Broadcast</th><th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in event_rows %}
+                        <tr>
+                            <td>{{ row.created_at|date:"Y-m-d H:i:s" }}</td>
+                            <td>{% if row.channel %}{{ row.channel.channel_name }} v{{ row.channel.version }}{% else %}<span class="muted">No policy</span>{% endif %}</td>
+                            <td>{{ row.event_type }} #{{ row.object_id }}</td>
+                            <td>{{ row.stage }}</td>
+                            <td><span class="status status-{{ row.status }}">{{ row.status }}</span></td>
+                            <td>{{ row.actor|default:"System" }}</td>
+                            <td class="breakable">{{ row.payload_ipfs_cid|default:"Not uploaded" }}</td>
+                            <td class="breakable">{{ row.broadcast_result|default:"Not broadcast" }}</td>
+                            <td>
+                                {% if row.error_message %}<div class="breakable status-failed">{{ row.error_message }}</div>{% endif %}
+                                <details><summary>Payload</summary><pre>{{ row.payload|pprint }}</pre></details>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="9" class="muted">No channel events match these filters.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table></div>
+            </section>
+        </div>
+    </div>
+    <script>
+        (() => {
+            const scanUrl = "{% url 'messaging_channel_management' %}?export=scan_json";
+            const postUrl = "{% url 'messaging_channel_management' %}";
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+            const escapeHtml = (value) => String(value ?? '')
+                .replaceAll('&', '&amp;').replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+            const subscriptionForm = (assetName, action, label) => `
+                <form method="post" action="${postUrl}">
+                    <input type="hidden" name="csrfmiddlewaretoken" value="${escapeHtml(csrfToken)}">
+                    <input type="hidden" name="action" value="${action}">
+                    <input type="hidden" name="asset_name" value="${escapeHtml(assetName)}">
+                    <button type="submit" class="btn">${label}</button>
+                </form>`;
+
+            fetch(scanUrl, {headers: {'Accept': 'application/json'}})
+                .then((response) => {
+                    if (!response.ok) throw new Error(`Scan request failed (${response.status})`);
+                    return response.json();
+                })
+                .then((data) => {
+                    const valid = data.valid_channels || [];
+                    const pending = data.pending_channels || [];
+                    const invalid = data.invalid_channels || [];
+                    document.getElementById('scan-summary').textContent =
+                        `Network: ${data.network_mode} | Verified: ${valid.length} | Pending: ${pending.length} | Invalid: ${invalid.length}`;
+                    if (data.scan_error) {
+                        document.getElementById('scan-error').innerHTML =
+                            `<div class="alert error">${escapeHtml(data.scan_error)}</div>`;
+                    }
+                    document.getElementById('valid-channel-rows').innerHTML = valid.length ? valid.map((row) => {
+                        let controls;
+                        if (row.is_subscribed === true) {
+                            controls = subscriptionForm(row.asset_name, 'unsubscribe_channel', 'Unsubscribe');
+                        } else if (row.is_subscribed === false) {
+                            controls = subscriptionForm(row.asset_name, 'subscribe_channel', 'Subscribe');
+                        } else {
+                            controls = `<div class="actions">${subscriptionForm(row.asset_name, 'subscribe_channel', 'Subscribe')}${subscriptionForm(row.asset_name, 'unsubscribe_channel', 'Unsubscribe')}</div><span class="muted">Current state unavailable</span>`;
+                        }
+                        return `<tr><td>${escapeHtml(row.asset_name)}</td><td>${escapeHtml(row.channel_key)}</td><td class="breakable">${escapeHtml(row.ipfs_cid)}</td><td>${escapeHtml((row.allowed_stages || []).join(', '))}</td><td>${controls}</td></tr>`;
+                    }).join('') : '<tr><td colspan="5" class="muted">No valid channel consoles found.</td></tr>';
+
+                    const pendingSection = document.getElementById('pending-channel-section');
+                    pendingSection.hidden = pending.length === 0;
+                    document.getElementById('pending-channel-rows').innerHTML = pending.map((row) =>
+                        `<tr><td>${escapeHtml(row.asset_name)}</td><td class="breakable">${escapeHtml(row.intended_ipfs_cid)}</td><td class="breakable">${escapeHtml(row.issuance_txid)}</td></tr>`
+                    ).join('');
+
+                    const invalidSection = document.getElementById('invalid-channel-section');
+                    invalidSection.hidden = invalid.length === 0;
+                    document.getElementById('invalid-channel-rows').innerHTML = invalid.map((row) =>
+                        `<tr><td>${escapeHtml(row.asset_name)}</td><td class="breakable">${escapeHtml(row.intended_ipfs_cid || 'Unknown')}</td><td class="breakable">${escapeHtml(row.issuance_txid || 'Unknown')}</td><td class="breakable">${escapeHtml(row.error)}</td></tr>`
+                    ).join('');
+                })
+                .catch((error) => {
+                    document.getElementById('scan-summary').textContent = 'Channel scan unavailable';
+                    document.getElementById('scan-error').innerHTML = `<div class="alert error">${escapeHtml(error.message)}</div>`;
+                });
+        })();
+    </script>
+</body>
+</html>

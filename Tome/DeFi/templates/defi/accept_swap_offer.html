@@ -1,3 +1,4 @@
+{% load static market_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -161,10 +162,22 @@
             background: rgba(71, 85, 105, 0.8);
         }
     </style>
+    <link rel="stylesheet" href="{% static 'css/atomic-swaps.css' %}">
+    <link rel="stylesheet" href="/static/css/app-theme.css">
 </head>
-<body>
-    <div class="container">
-        <div class="logo">DeFi Tome</div>
+<body class="theme-{{ user_theme }}">
+    <div class="container confirmation-container">
+        <header>
+            <div class="logo">DeFi Tome</div>
+            <nav>
+                <a href="{% url 'home' %}">Home</a>
+                <a href="{% url 'explorer' %}">Explorer</a>
+                <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
+                <a href="{% url 'dex_orderbook' %}">DEX</a>
+                <a href="{% url 'lending_home' %}">Lending</a>
+            </nav>
+            <div class="live-balance">Last synced<strong>{{ user_wallet_balance|floatformat:8 }} EVR</strong></div>
+        </header>
         
         <div class="confirmation-card">
             <div class="page-title">
@@ -175,13 +188,13 @@
                 <div class="swap-visual">
                     <div class="token-box">
                         <div class="token-amount">{{ swap_offer.request_amount }}</div>
-                        <div class="token-symbol">{{ swap_offer.request_token }}</div>
+                        <div class="token-symbol" title="{{ swap_offer.request_token|asset_tooltip }}">{{ swap_offer.request_token|market_symbol }}</div>
                         <div style="color: #94a3b8; margin-top: 0.5rem; font-size: 0.9rem;">You Give</div>
                     </div>
                     <div class="swap-arrow">⇄</div>
                     <div class="token-box">
                         <div class="token-amount">{{ swap_offer.offer_amount }}</div>
-                        <div class="token-symbol">{{ swap_offer.offer_token }}</div>
+                        <div class="token-symbol" title="{{ swap_offer.offer_token|asset_tooltip }}">{{ swap_offer.offer_token|market_symbol }}</div>
                         <div style="color: #94a3b8; margin-top: 0.5rem; font-size: 0.9rem;">You Get</div>
                     </div>
                 </div>
@@ -192,7 +205,7 @@
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Exchange Rate:</span>
-                    <span class="detail-value">1 {{ swap_offer.request_token }} = {{ swap_offer.offer_amount|floatformat:8 }} {{ swap_offer.offer_token }}</span>
+                    <span class="detail-value">1 <span title="{{ swap_offer.request_token|asset_tooltip }}">{{ swap_offer.request_token|market_symbol }}</span> = {{ swap_offer.offer_amount|floatformat:8 }} <span title="{{ swap_offer.offer_token|asset_tooltip }}">{{ swap_offer.offer_token|market_symbol }}</span></span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Expires:</span>
