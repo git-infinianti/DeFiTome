@@ -54,6 +54,9 @@ class AddressMetadataTagServiceTests(TestCase):
 	address = 'EL5MFdaF8msRaUEDu9mxSNniPSswNmNRgq'
 
 	def setUp(self):
+		network_mode_patch = patch('Media.address_metadata.get_current_network_mode', return_value='testnet')
+		network_mode_patch.start()
+		self.addCleanup(network_mode_patch.stop)
 		self.user = User.objects.create_user(username='tagger', password='test-password')
 		self.wallet = UserWallet.objects.create(
 			user=self.user,

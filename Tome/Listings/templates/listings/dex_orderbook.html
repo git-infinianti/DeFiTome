@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DeFi Tome - DEX Trading</title>
+    <title>DeFi Tome - Decentralized Exchange Trading</title>
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         * {
@@ -168,6 +168,10 @@
             display: flex;
             align-items: center;
             gap: 0.5rem;
+        }
+
+        .pair-selector select {
+            min-width: 180px;
         }
         
         .pair-info {
@@ -489,7 +493,7 @@
             <div class="logo">DeFi Tome</div>
             <nav>
                 <a href="{% url 'markets' %}">Markets</a>
-                <a href="{% url 'dex_orderbook' %}">Trade</a>
+                <a href="{% url 'dex_orderbook' selected_pair.pair_slug %}" class="active">Trade</a>
                 <a href="{% url 'my_orders' %}">Orders</a>
                 <a href="{% url 'portfolio' %}">Portfolio</a>
             </nav>
@@ -563,6 +567,13 @@
         <!-- Center Panel: Chart -->
         <div class="center-panel">
             <div class="chart-header">
+                <div class="pair-selector">
+                    <select aria-label="Select market" onchange="if (this.value) window.location.assign(this.value)">
+                        {% for pair in trading_pairs %}
+                        <option value="{% url 'dex_orderbook' pair.pair_slug %}" {% if pair.id == selected_pair.id %}selected{% endif %}>{{ pair.base_token|market_symbol }}/{{ pair.quote_token|market_symbol }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
                 <div class="pair-info">
                     <div class="pair-name">
                         {% if selected_pair %}
@@ -583,6 +594,7 @@
                 </div>
             </div>
             <div id="chart-container"></div>
+            <div id="chart-empty" class="empty-state" hidden>No executed trades for this market and timeframe.</div>
         </div>
 
         <!-- Right Panel: Trading Forms -->
@@ -729,6 +741,7 @@
         </div>
     </div>
 
+    {{ chart_trades|json_script:"chart-trades-data" }}
     <script>
         const selectedPairId = "{% if selected_pair %}{{ selected_pair.id }}{% else %}none{% endif %}";
         const balanceEndpoint = "{% if selected_pair %}{% url 'market_pair_balances' selected_pair.id %}{% endif %}";
@@ -776,16 +789,60 @@
             wickDownColor: '#f87171',
         });
 
-        // Sample OHLC data (in production, this would come from your backend)
-        const sampleData = [
-            { time: Math.floor(Date.now() / 1000) - 3600, open: 0.0045, high: 0.0048, low: 0.0043, close: 0.0046 },
-            { time: Math.floor(Date.now() / 1000) - 2400, open: 0.0046, high: 0.0049, low: 0.0045, close: 0.0047 },
-            { time: Math.floor(Date.now() / 1000) - 1200, open: 0.0047, high: 0.0050, low: 0.0046, close: 0.0048 },
-            { time: Math.floor(Date.now() / 1000), open: 0.0048, high: 0.0051, low: 0.0047, close: 0.0050 },
-        ];
+        const chartTrades = JSON.parse(document.getElementById('chart-trades-data').textContent)
+            .map((trade) => ({ time: Number(trade.time), price: Number(trade.price) }))
+            .filter((trade) => Number.isFinite(trade.time) && Number.isFinite(trade.price));
+        const timeframeSeconds = { '1': 60, '5': 300, '15': 900, '60': 3600, D: 86400 };
+        const chartEmpty = document.getElementById('chart-empty');
 
-        candleSeries.setData(sampleData);
-        chart.timeScale().fitContent();
+        function buildCandles(trades, intervalSeconds) {
+            const candles = new Map();
+            trades.forEach((trade) => {
+                const bucket = Math.floor(trade.time / intervalSeconds) * intervalSeconds;
+                const candle = candles.get(bucket);
+                if (!candle) {
+                    candles.set(bucket, {
+                        time: bucket,
+                        open: trade.price,
+                        high: trade.price,
+                        low: trade.price,
+                        close: trade.price,
+                    });
+                    return;
+                }
+                candle.high = Math.max(candle.high, trade.price);
+                candle.low = Math.min(candle.low, trade.price);
+                candle.close = trade.price;
+            });
+            return Array.from(candles.values()).sort((left, right) => left.time - right.time);
+        }
+
+        function renderChart(timeframe) {
+            const candles = buildCandles(chartTrades, timeframeSeconds[timeframe]);
+            candleSeries.setData(candles);
+            chartEmpty.hidden = candles.length > 0;
+            if (candles.length > 0) {
+                const latest = candles[candles.length - 1];
+                document.getElementById('current-price').textContent = latest.close.toFixed(8);
+                chart.timeScale().fitContent();
+            } else {
+                document.getElementById('current-price').textContent = 'No trades';
+            }
+        }
+
+        document.querySelectorAll('.timeframe-btn').forEach((button) => {
+            button.addEventListener('click', () => {
+                document.querySelectorAll('.timeframe-btn').forEach((item) => item.classList.remove('active'));
+                button.classList.add('active');
+                renderChart(button.dataset.tf);
+            });
+        });
+
+        new ResizeObserver((entries) => {
+            chart.applyOptions({ width: entries[0].contentRect.width });
+        }).observe(chartContainer);
+
+        renderChart('1');
 
         // Fill price from order book click
         function fillPrice(price) {

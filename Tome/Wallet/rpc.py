@@ -19,6 +19,10 @@ MAX_SEQUENCE = 0xFFFFFFFF
 RBF_SEQUENCE = 0xFFFFFFFD
 LOCKTIME_SEQUENCE = 0xFFFFFFFE
 
+
+class InsufficientSpendableBalance(Exception):
+    """Raised when confirmed, mempool-safe UTXOs cannot fund a raw transaction."""
+
 BURN_ADDRESS_ISSUE_ASSET = 'EXissueAssetXXXXXXXXXXXXXXXXYiYRBD'
 BURN_ADDRESS_ISSUE_SUBASSET = 'EXissueSubAssetXXXXXXXXXXXXXWW1ASo'
 BURN_ADDRESS_ISSUE_UNIQUE = 'EXissueUniqueAssetXXXXXXXXXXTZjZJ5'
@@ -581,7 +585,9 @@ def _select_evr_inputs(address, required_satoshis, locktime=0, replaceable=False
     if total_selected < required_satoshis:
         needed = _satoshis_to_evr(required_satoshis)
         available = _satoshis_to_evr(total_selected)
-        raise Exception(f'Insufficient EVR balance. Needed: {needed}, available: {available}.')
+        raise InsufficientSpendableBalance(
+            f'Insufficient spendable EVR balance. Needed: {needed}, available: {available}.'
+        )
 
     return selected_inputs, total_selected
 
@@ -626,8 +632,9 @@ def _select_asset_inputs(address, asset_name, required_quantity, locktime=0, rep
             break
 
     if selected_quantity < required_quantity:
-        raise Exception(
-            f'Insufficient {asset_name} balance. Needed: {required_quantity}, available: {selected_quantity}.'
+        raise InsufficientSpendableBalance(
+            f'Insufficient spendable {asset_name} balance. '
+            f'Needed: {required_quantity}, available: {selected_quantity}.'
         )
 
     return selected_inputs, selected_quantity, selected_coin_satoshis

@@ -1,6 +1,9 @@
 import hashlib
+import re
 
+from django.conf import settings
 from django.db import models
+from django.utils.text import slugify
 
 # Create your models here.
 ''' 
@@ -116,6 +119,7 @@ class TradingPair(models.Model):
         db_index=True,
     )
     pair_key = models.CharField(max_length=64, null=True, blank=True, editable=False)
+    pair_slug = models.SlugField(max_length=255, editable=False, db_index=True)
     is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='created_pairs')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -133,6 +137,10 @@ class TradingPair(models.Model):
                 fields=('network_mode', 'pair_key'),
                 name='trading_pair_unordered_unique_per_network',
             ),
+            models.UniqueConstraint(
+                fields=('network_mode', 'pair_slug'),
+                name='trading_pair_slug_unique_per_network',
+            ),
         ]
     
     def __str__(self):
@@ -146,14 +154,26 @@ class TradingPair(models.Model):
         )))
         return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
 
+    @staticmethod
+    def build_pair_slug(base_token, quote_token):
+        base = str(base_token or '').strip().upper()
+        quote = str(quote_token or '').strip().upper()
+        base_slug = slugify(re.sub(r'[/~#$!]+', '-', base))[:100] or 'asset'
+        quote_slug = slugify(re.sub(r'[/~#$!]+', '-', quote))[:100] or 'asset'
+        pair_slug = f'{base_slug}-{quote_slug}'
+        if not re.fullmatch(r'[A-Z0-9]+', base) or not re.fullmatch(r'[A-Z0-9]+', quote):
+            identity = hashlib.sha256(f'{base}\x1f{quote}'.encode('utf-8')).hexdigest()[:10]
+            pair_slug = f'{pair_slug}-{identity}'
+        return pair_slug
+
     def save(self, *args, **kwargs):
         self.instrument_type = (
             self.INSTRUMENT_SECURITY_CAPABLE
             if str(self.base_token or '').startswith('$')
             else self.INSTRUMENT_TOKEN
         )
-        if self._state.adding or self.pair_key:
-            self.pair_key = self.build_pair_key(self.base_token, self.quote_token)
+        self.pair_key = self.build_pair_key(self.base_token, self.quote_token)
+        self.pair_slug = self.build_pair_slug(self.base_token, self.quote_token)
         super().save(*args, **kwargs)
     
     def get_24h_stats(self):
@@ -194,6 +214,31 @@ class TradingPair(models.Model):
             'volume_24h': self.volume_24h,
             'amount_24h': self.amount_24h,
         }
+
+
+class MarketFavorite(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='market_favorites',
+    )
+    trading_pair = models.ForeignKey(
+        TradingPair,
+        on_delete=models.CASCADE,
+        related_name='favorited_by',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=('user', 'trading_pair'),
+                name='unique_market_favorite_per_user',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.user} - {self.trading_pair}'
 
 class LimitOrder(models.Model):
     """Limit order in the order book"""

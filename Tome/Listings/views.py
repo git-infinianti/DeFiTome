@@ -3,17 +3,22 @@ from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 import base64
+import logging
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
 import mimetypes
 from django.db import IntegrityError, transaction
-from django.db.models import F, DecimalField, Q, Sum
+from django.db.models import DecimalField, Exists, F, OuterRef, Q, Sum
 from django.db.models import ExpressionWrapper
 from io import BytesIO
 from django.utils import timezone
 from django.utils.text import get_valid_filename
+from django.urls import reverse
+from django.views.decorators.http import require_POST
+from urllib.parse import urlencode
 from .models import (
     Listing, ListingItem, TradingPair, LimitOrder,
-    MarketOrder, StopLossOrder, OrderExecution, BalanceLock, UniqueAssetMintRequest
+    MarketFavorite, MarketOrder, StopLossOrder, OrderExecution, BalanceLock,
+    UniqueAssetMintRequest,
 )
 from Explorer.rpc import RPC
 from Wallet.models import TrackedAssetHolding, WalletAddress
@@ -22,6 +27,7 @@ from Wallet.asset_tracking import classify_asset_type, sync_tracked_assets
 from Wallet.models import TrackedAsset
 from Wallet.asset_units import amount_quantum_for_units, get_asset_units, normalize_amount_for_asset
 from Wallet.rpc import (
+    InsufficientSpendableBalance,
     create_and_send_atomic_asset_asset_swap_transaction,
     create_and_send_atomic_asset_evr_swap_transaction,
     create_and_send_issue_unique_transaction,
@@ -43,6 +49,18 @@ from .metadata import (
     normalize_unique_asset_metadata,
     validate_unique_asset_metadata,
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+def _redirect_to_order_book(pair_id=None):
+    if not pair_id:
+        return redirect('markets')
+    pair_slug = TradingPair.objects.filter(pk=pair_id).values_list('pair_slug', flat=True).first()
+    if not pair_slug:
+        return redirect('markets')
+    return redirect('dex_orderbook', pair_slug=pair_slug)
 import json
 import os
 import uuid
@@ -1109,33 +1127,26 @@ def listing_detail(request, listing_id):
 
 # Order Book DEX Views
 @login_required
-def dex_orderbook(request):
+def dex_orderbook(request, pair_slug):
     """Main DEX order book interface"""
     from DeFi.models import SwapOffer
 
     current_network = get_current_network_mode()
 
-    # Get all active trading pairs
-    trading_pairs = TradingPair.objects.filter(is_active=True, network_mode=current_network)
-    
-    # Get selected pair or default to first
-    selected_pair_id = request.GET.get('pair')
-    if selected_pair_id:
-        try:
-            selected_pair = TradingPair.objects.get(
-                id=selected_pair_id,
-                is_active=True,
-                network_mode=current_network,
-            )
-        except TradingPair.DoesNotExist:
-            selected_pair = trading_pairs.first() if trading_pairs.exists() else None
-    else:
-        selected_pair = trading_pairs.first() if trading_pairs.exists() else None
+    trading_pairs = TradingPair.objects.filter(
+        is_active=True,
+        network_mode=current_network,
+    ).order_by('base_token', 'quote_token')
+    selected_pair = get_object_or_404(
+        trading_pairs,
+        pair_slug=pair_slug,
+    )
     
     # Get order book for selected pair
     buy_orders = []
     sell_orders = []
     recent_trades = []
+    chart_trades = []
     base_live_balance = Decimal('0')
     quote_live_balance = Decimal('0')
     base_available_balance = Decimal('0')
@@ -1205,6 +1216,16 @@ def dex_orderbook(request):
                 output_field=DecimalField(max_digits=20, decimal_places=8)
             )
         ).order_by('-created_at')[:20]
+        chart_rows = list(OrderExecution.objects.filter(
+            trading_pair=selected_pair,
+        ).order_by('-created_at').values('created_at', 'price')[:5000])
+        chart_trades = [
+            {
+                'time': int(row['created_at'].timestamp()),
+                'price': str(row['price']),
+            }
+            for row in reversed(chart_rows)
+        ]
     
     context = {
         'trading_pairs': trading_pairs,
@@ -1226,6 +1247,7 @@ def dex_orderbook(request):
         'buy_orders': buy_orders,
         'sell_orders': sell_orders,
         'recent_trades': recent_trades,
+        'chart_trades': chart_trades,
         'atomic_listings': atomic_listings,
         'base_live_balance': _format_asset_amount(base_live_balance),
         'quote_live_balance': _format_asset_amount(quote_live_balance),
@@ -1297,6 +1319,7 @@ def market_pair_balances(request, pair_id):
     })
 
 @login_required
+@require_POST
 def place_limit_order(request):
     """Place a limit order"""
     if request.method == 'POST':
@@ -1308,11 +1331,11 @@ def place_limit_order(request):
         # Validate inputs
         if not all([pair_id, side, price, quantity]):
             messages.error(request, 'All fields are required.')
-            return redirect('dex_orderbook')
+            return _redirect_to_order_book(pair_id)
         
         if side not in ['buy', 'sell']:
             messages.error(request, 'Invalid order side.')
-            return redirect('dex_orderbook')
+            return _redirect_to_order_book(pair_id)
         
         try:
             trading_pair = TradingPair.objects.get(
@@ -1373,11 +1396,12 @@ def place_limit_order(request):
         except Exception as e:
             messages.error(request, f'Error placing order: {str(e)}')
         
-        return redirect('dex_orderbook')
+        return _redirect_to_order_book(pair_id)
     
-    return redirect('dex_orderbook')
+    return _redirect_to_order_book()
 
 @login_required
+@require_POST
 def place_market_order(request):
     """Place a market order for instant execution"""
     if request.method == 'POST':
@@ -1388,11 +1412,11 @@ def place_market_order(request):
         # Validate inputs
         if not all([pair_id, side, quantity]):
             messages.error(request, 'All fields are required.')
-            return redirect('dex_orderbook')
+            return _redirect_to_order_book(pair_id)
         
         if side not in ['buy', 'sell']:
             messages.error(request, 'Invalid order side.')
-            return redirect('dex_orderbook')
+            return _redirect_to_order_book(pair_id)
         
         try:
             trading_pair = TradingPair.objects.get(
@@ -1426,7 +1450,7 @@ def place_market_order(request):
             
             if not opposite_orders.exists():
                 messages.error(request, 'No orders available for immediate execution.')
-                return redirect('dex_orderbook')
+                return _redirect_to_order_book(pair_id)
             
             # Calculate maximum cost for buy orders (worst case scenario)
             if side == 'buy':
@@ -1450,7 +1474,7 @@ def place_market_order(request):
                         request, 
                         f'Insufficient {trading_pair.quote_token} balance. Required: {total_cost:.8f}, Available: {user_balance:.8f}'
                     )
-                    return redirect('dex_orderbook')
+                    return _redirect_to_order_book(pair_id)
             else:
                 user_balance = _get_verified_available_token_balance(request.user, trading_pair.base_token)
                 if user_balance < quantity_decimal:
@@ -1458,7 +1482,7 @@ def place_market_order(request):
                         request,
                         f'Insufficient {trading_pair.base_token} balance. Required: {quantity_decimal:.8f}, Available: {user_balance:.8f}'
                     )
-                    return redirect('dex_orderbook')
+                    return _redirect_to_order_book(pair_id)
             
             # Execute market order
             remaining_qty = quantity_decimal
@@ -1491,13 +1515,22 @@ def place_market_order(request):
                         buyer_order = limit_order
                         seller_order = None
 
-                    tx_hash = _settle_market_fill(
-                        trading_pair,
-                        buyer=buyer,
-                        seller=seller,
-                        quantity=fill_qty,
-                        price=limit_order.price,
-                    )
+                    try:
+                        tx_hash = _settle_market_fill(
+                            trading_pair,
+                            buyer=buyer,
+                            seller=seller,
+                            quantity=fill_qty,
+                            price=limit_order.price,
+                        )
+                    except InsufficientSpendableBalance as exc:
+                        logger.info(
+                            'Deferred market fill for pair=%s maker_order=%s: %s',
+                            trading_pair.pk,
+                            limit_order.pk,
+                            exc,
+                        )
+                        continue
 
                     OrderExecution.objects.create(
                         trading_pair=trading_pair,
@@ -1527,7 +1560,9 @@ def place_market_order(request):
                 if filled_qty > 0:
                     avg_price = total_cost / filled_qty
                 else:
-                    avg_price = Decimal('0')
+                    raise ValueError(
+                        'Matching orders are awaiting spendable on-chain funds or change confirmation.'
+                    )
                 
                 market_order = MarketOrder.objects.create(
                     user=request.user,
@@ -1563,11 +1598,12 @@ def place_market_order(request):
         except Exception as e:
             messages.error(request, f'Error executing market order: {str(e)}')
         
-        return redirect('dex_orderbook')
+        return _redirect_to_order_book(pair_id)
     
-    return redirect('dex_orderbook')
+    return _redirect_to_order_book()
 
 @login_required
+@require_POST
 def place_stop_loss_order(request):
     """Place a stop-loss order"""
     if request.method == 'POST':
@@ -1579,11 +1615,11 @@ def place_stop_loss_order(request):
         # Validate inputs
         if not all([pair_id, side, trigger_price, quantity]):
             messages.error(request, 'All fields are required.')
-            return redirect('dex_orderbook')
+            return _redirect_to_order_book(pair_id)
         
         if side not in ['buy', 'sell']:
             messages.error(request, 'Invalid order side.')
-            return redirect('dex_orderbook')
+            return _redirect_to_order_book(pair_id)
         
         try:
             trading_pair = TradingPair.objects.get(
@@ -1627,11 +1663,12 @@ def place_stop_loss_order(request):
         except Exception as e:
             messages.error(request, f'Error placing stop-loss order: {str(e)}')
         
-        return redirect('dex_orderbook')
+        return _redirect_to_order_book(pair_id)
     
-    return redirect('dex_orderbook')
+    return _redirect_to_order_book()
 
 @login_required
+@require_POST
 def cancel_order(request, order_id):
     """Cancel a limit order"""
     if request.method == 'POST':
@@ -1658,6 +1695,7 @@ def cancel_order(request, order_id):
     return redirect('my_orders')
 
 @login_required
+@require_POST
 def cancel_stop_loss(request, order_id):
     """Cancel a stop-loss order"""
     if request.method == 'POST':
@@ -1783,13 +1821,23 @@ def _match_order(order):
                 buyer_order = opposite
                 seller_order = order
             
-            tx_hash = _settle_market_fill(
-                order.trading_pair,
-                buyer=buyer,
-                seller=seller,
-                quantity=fill_qty,
-                price=execution_price,
-            )
+            try:
+                tx_hash = _settle_market_fill(
+                    order.trading_pair,
+                    buyer=buyer,
+                    seller=seller,
+                    quantity=fill_qty,
+                    price=execution_price,
+                )
+            except InsufficientSpendableBalance as exc:
+                logger.info(
+                    'Deferred limit fill for pair=%s maker_order=%s taker_order=%s: %s',
+                    order.trading_pair_id,
+                    opposite.pk,
+                    order.pk,
+                    exc,
+                )
+                continue
 
             OrderExecution.objects.create(
                 trading_pair=order.trading_pair,
@@ -1886,29 +1934,40 @@ def markets_view(request):
     filter_token = request.GET.get('filter', 'ALL').upper()
     
     # Get all active trading pairs
-    markets = TradingPair.objects.filter(
-        is_active=True,
-        network_mode=current_network,
-    ).select_related('created_by')
+    markets = TradingPair.objects.filter(network_mode=current_network).select_related('created_by')
+    if not can_manage_markets:
+        markets = markets.filter(is_active=True)
+    else:
+        markets = markets.annotate(
+            has_limit_orders=Exists(LimitOrder.objects.filter(trading_pair=OuterRef('pk'))),
+            has_market_orders=Exists(MarketOrder.objects.filter(trading_pair=OuterRef('pk'))),
+            has_stop_orders=Exists(StopLossOrder.objects.filter(trading_pair=OuterRef('pk'))),
+            has_executions=Exists(OrderExecution.objects.filter(trading_pair=OuterRef('pk'))),
+        )
+    favorite_market_ids = set(MarketFavorite.objects.filter(
+        user=request.user,
+        trading_pair__network_mode=current_network,
+    ).values_list('trading_pair_id', flat=True))
     
     # Update 24h stats for all markets (in production, this should be a background task)
     for market in markets:
         market.get_24h_stats()
     
     # Apply filter
-    if filter_token != 'ALL':
+    if filter_token == 'FAVORITES':
+        markets = markets.filter(pk__in=favorite_market_ids)
+    elif filter_token != 'ALL':
         markets = markets.filter(Q(base_token=filter_token) | Q(quote_token=filter_token))
     
     # Get unique quote tokens for filter buttons
-    all_markets = TradingPair.objects.filter(is_active=True, network_mode=current_network)
+    all_markets = TradingPair.objects.filter(network_mode=current_network)
+    if not can_manage_markets:
+        all_markets = all_markets.filter(is_active=True)
     quote_tokens = set()
     for market in all_markets:
         quote_tokens.add(market.quote_token)
         quote_tokens.add(market.base_token)
     quote_tokens = sorted(list(quote_tokens))
-    
-    # Get user's favorite markets (placeholder - implement favorites later)
-    # favorites = request.user.favorite_markets.all() if hasattr(request.user, 'favorite_markets') else []
     
     context = {
         'markets': markets.order_by('-volume_24h'),
@@ -1916,9 +1975,35 @@ def markets_view(request):
         'quote_tokens': quote_tokens,
         'can_manage_markets': can_manage_markets,
         'current_network': current_network,
-        # 'favorites': favorites,
+        'favorite_market_ids': favorite_market_ids,
     }
     return render(request, 'listings/markets.html', context)
+
+
+@login_required
+@require_POST
+def toggle_market_favorite(request, market_id):
+    market = get_object_or_404(
+        TradingPair,
+        pk=market_id,
+        is_active=True,
+        network_mode=get_current_network_mode(),
+    )
+    favorite, created = MarketFavorite.objects.get_or_create(
+        user=request.user,
+        trading_pair=market,
+    )
+    if not created:
+        favorite.delete()
+    return _redirect_to_markets(request.POST.get('filter'))
+
+
+def _redirect_to_markets(filter_token=None):
+    url = reverse('markets')
+    normalized_filter = str(filter_token or '').strip().upper()
+    if normalized_filter and normalized_filter != 'ALL':
+        url = f"{url}?{urlencode({'filter': normalized_filter})}"
+    return redirect(url)
 
 @login_required
 def create_market(request):
@@ -2091,11 +2176,9 @@ def create_market(request):
 
 
 @login_required
+@require_POST
 def toggle_market_status(request, market_id):
     """Allow authorized users to pause/resume a market on the active network."""
-    if request.method != 'POST':
-        return redirect('markets')
-
     if not user_has_feature_access(request.user, FEATURE_MARKET_MANAGEMENT):
         messages.error(request, 'You are not authorized to modify markets.')
         return redirect('markets')
@@ -2110,4 +2193,49 @@ def toggle_market_status(request, market_id):
 
     state = 'active' if market.is_active else 'paused'
     messages.success(request, f'Market {market.base_token}/{market.quote_token} is now {state}.')
+    return redirect('markets')
+
+
+@login_required
+def legacy_dex_orderbook(request):
+    pair_id = request.GET.get('pair')
+    if pair_id:
+        pair = TradingPair.objects.filter(
+            pk=pair_id,
+            is_active=True,
+            network_mode=get_current_network_mode(),
+        ).first()
+        if pair:
+            return redirect('dex_orderbook', pair_slug=pair.pair_slug, permanent=True)
+    return redirect('markets', permanent=True)
+
+
+@login_required
+@require_POST
+def reverse_market_pair(request, market_id):
+    if not user_has_feature_access(request.user, FEATURE_MARKET_MANAGEMENT):
+        messages.error(request, 'You are not authorized to modify markets.')
+        return redirect('markets')
+
+    market = get_object_or_404(
+        TradingPair,
+        id=market_id,
+        network_mode=get_current_network_mode(),
+    )
+    has_history = (
+        LimitOrder.objects.filter(trading_pair=market).exists()
+        or MarketOrder.objects.filter(trading_pair=market).exists()
+        or StopLossOrder.objects.filter(trading_pair=market).exists()
+        or OrderExecution.objects.filter(trading_pair=market).exists()
+    )
+    if has_history:
+        messages.error(
+            request,
+            'Pair orientation cannot change after orders or trades exist because prices and quantities would be inverted.',
+        )
+        return redirect('markets')
+
+    market.base_token, market.quote_token = market.quote_token, market.base_token
+    market.save()
+    messages.success(request, f'Market orientation changed to {market.base_token}/{market.quote_token}.')
     return redirect('markets')

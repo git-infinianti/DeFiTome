@@ -282,7 +282,7 @@
             <div class="header-right">
                 <nav>
                     <a href="{% url 'markets' %}">Markets</a>
-                    <a href="{% url 'dex_orderbook' %}">Trade</a>
+                    <a href="{% url 'markets' %}">Decentralized Exchange</a>
                     <a href="{% url 'my_orders' %}">Orders</a>
                     <a href="{% url 'portfolio' %}">Portfolio</a>
                 </nav>
@@ -307,7 +307,7 @@
         
         <div class="page-header">
             <h1 class="page-title">My Orders</h1>
-            <a href="{% url 'dex_orderbook' %}" class="btn-nav">← Back to DEX</a>
+            <a href="{% url 'markets' %}" class="btn-nav">← Back to Decentralized Exchange</a>
         </div>
         
         <!-- Active Limit Orders -->
@@ -354,7 +354,7 @@
             {% else %}
                 <div class="empty-state">
                     <h3>No Active Limit Orders</h3>
-                    <p>Place a limit order on the DEX to see it here</p>
+                    <p>Place a limit order on the decentralized exchange to see it here</p>
                 </div>
             {% endif %}
         </div>
@@ -401,7 +401,7 @@
             {% else %}
                 <div class="empty-state">
                     <h3>No Stop-Loss Orders</h3>
-                    <p>Place a stop-loss order on the DEX to protect your trades</p>
+                    <p>Place a stop-loss order on the decentralized exchange to protect your trades</p>
                 </div>
             {% endif %}
         </div>
@@ -437,7 +437,7 @@
             {% else %}
                 <div class="empty-state">
                     <h3>No Market Orders</h3>
-                    <p>Execute a market order on the DEX for instant trading</p>
+                    <p>Execute a market order on the decentralized exchange for instant trading</p>
                 </div>
             {% endif %}
         </div>

@@ -285,8 +285,11 @@ class CanonicalRouteFlowTestCase(TestCase):
 
     def test_primary_routes_use_short_canonical_paths(self):
         self.assertEqual(reverse('home'), '/')
-        self.assertEqual(reverse('markets'), '/markets/')
-        self.assertEqual(reverse('dex_orderbook'), '/markets/trade/')
+        self.assertEqual(reverse('markets'), '/defi/p2p/dex/')
+        self.assertEqual(
+            reverse('dex_orderbook', args=['system0808-evr']),
+            '/defi/p2p/dex/system0808-evr/',
+        )
         self.assertEqual(reverse('create_listing'), '/defi/p2p/create/')
         self.assertEqual(reverse('available_swap_offers'), '/defi/p2p/available/')
 
@@ -295,8 +298,8 @@ class CanonicalRouteFlowTestCase(TestCase):
             ('/user/home/', '/'),
             ('/listings/', '/defi/p2p/available/'),
             ('/listings/create/', '/defi/p2p/create/'),
-            ('/listings/markets/', '/markets/'),
-            ('/listings/dex/', '/markets/trade/'),
+            ('/listings/markets/', '/defi/p2p/dex/'),
+            ('/listings/dex/', '/defi/p2p/dex/'),
         )
         for legacy_path, canonical_path in cases:
             with self.subTest(legacy_path=legacy_path):

@@ -24,7 +24,6 @@ urlpatterns = [
     path('user/', include('User.urls')),
     path('wallet/', include('Wallet.urls')),
     path('settings/', include('Settings.urls')),
-    path('markets/', include('Tome.market_urls')),
     path('listings/', include('Listings.urls')),
     path('explorer/', include('Explorer.urls')),
     path('api/', include('API.urls')),

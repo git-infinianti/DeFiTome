@@ -290,6 +290,11 @@
         }
         
         .star-icon {
+            width: 28px;
+            min-height: 28px;
+            padding: 0 !important;
+            border: 0 !important;
+            background: transparent !important;
             color: var(--text-muted);
             cursor: pointer;
             font-size: 16px;
@@ -393,7 +398,7 @@
             <div class="header-right">
                 <nav>
                     <a href="{% url 'markets' %}">Markets</a>
-                    <a href="{% url 'dex_orderbook' %}">Trade</a>
+                    <a href="{% url 'markets' %}">Decentralized Exchange</a>
                     <a href="{% url 'my_orders' %}">Orders</a>
                     <a href="{% url 'portfolio' %}">Portfolio</a>
                 </nav>
@@ -407,7 +412,7 @@
         </header>
         
         <section class="page-title">
-            <h1>Market DEX</h1>
+            <h1>Decentralized Exchange Markets</h1>
             <p>Continuous spot markets on {{ current_network|title }}</p>
         </section>
         
@@ -415,7 +420,6 @@
             {% if can_manage_markets %}
             <a href="{% url 'create_market' %}" class="btn btn-primary">+ Create Market</a>
             {% endif %}
-            <a href="{% url 'dex_orderbook' %}" class="btn btn-secondary">Open Trading Desk</a>
         </div>
 
         {% if not can_manage_markets %}
@@ -437,8 +441,9 @@
         <div class="filters">
             <span>Filters:</span>
             <a href="?filter=ALL" class="filter-btn {% if filter_token == 'ALL' %}active{% endif %}">ALL</a>
+            <a href="?filter=FAVORITES" class="filter-btn {% if filter_token == 'FAVORITES' %}active{% endif %}">Favorites</a>
             {% for token in quote_tokens %}
-            <a href="?filter={{ token }}" class="filter-btn {% if filter_token == token %}active{% endif %}">{{ token }}</a>
+            <a href="?filter={{ token|urlencode }}" class="filter-btn {% if filter_token == token %}active{% endif %}" title="{{ token|asset_tooltip }}">{{ token|market_symbol }}</a>
             {% endfor %}
         </div>
         
@@ -461,11 +466,25 @@
                 <tr>
                     <td>
                         <div class="market-pair">
-                            <span class="star-icon">☆</span>
-                            <a href="{% url 'dex_orderbook' %}?pair={{ market.id }}" style="text-decoration: none; color: #2c3e50;">
+                            {% if market.is_active %}
+                            <form method="post" action="{% url 'toggle_market_favorite' market.id %}">
+                                {% csrf_token %}
+                                <input type="hidden" name="filter" value="{{ filter_token }}">
+                                <button
+                                    type="submit"
+                                    class="star-icon{% if market.id in favorite_market_ids %} favorite{% endif %}"
+                                    aria-label="{% if market.id in favorite_market_ids %}Remove{% else %}Add{% endif %} {{ market }} {% if market.id in favorite_market_ids %}from{% else %}to{% endif %} favorites"
+                                    title="{% if market.id in favorite_market_ids %}Remove from{% else %}Add to{% endif %} favorites"
+                                >{% if market.id in favorite_market_ids %}★{% else %}☆{% endif %}</button>
+                            </form>
+                            {% else %}
+                            <span class="star-icon" aria-hidden="true">{% if market.id in favorite_market_ids %}★{% else %}☆{% endif %}</span>
+                            {% endif %}
+                            {% if market.is_active %}<a href="{% url 'dex_orderbook' market.pair_slug %}" style="text-decoration: none; color: #2c3e50;">{% endif %}
                                 <span title="{{ market.base_token|asset_tooltip }}">{{ market.base_token|market_symbol }}</span>/<span title="{{ market.quote_token|asset_tooltip }}">{{ market.quote_token|market_symbol }}</span>
-                            </a>
+                            {% if market.is_active %}</a>{% endif %}
                             <span class="instrument-badge {% if market.instrument_type == 'security_capable' %}security-capable{% endif %}">{{ market.get_instrument_type_display }}</span>
+                            {% if not market.is_active %}<span class="status-badge">Paused</span>{% endif %}
                         </div>
                     </td>
                     <td>{{ market.last_price|floatformat:8 }}</td>
@@ -484,12 +503,23 @@
                     <td>{{ market.volume_24h|floatformat:2 }}</td>
                     {% if can_manage_markets %}
                     <td>
+                        <div class="actions">
                         <form method="POST" action="{% url 'toggle_market_status' market.id %}">
                             {% csrf_token %}
                             <button type="submit" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">
                                 {% if market.is_active %}Pause{% else %}Resume{% endif %}
                             </button>
                         </form>
+                        <form method="POST" action="{% url 'reverse_market_pair' market.id %}">
+                            {% csrf_token %}
+                            <button
+                                type="submit"
+                                class="btn btn-secondary"
+                                style="padding: 0.4rem 0.8rem; font-size: 0.8rem;"
+                                {% if market.has_limit_orders or market.has_market_orders or market.has_stop_orders or market.has_executions %}disabled title="Pair orientation is locked after market activity begins"{% endif %}
+                            >Reverse Pair</button>
+                        </form>
+                        </div>
                     </td>
                     {% endif %}
                 </tr>

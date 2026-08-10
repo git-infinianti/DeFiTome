@@ -1158,7 +1158,7 @@ class SendFundsViewTests(TestCase):
         self.user_wallet = UserWallet.objects.create(
             user=self.user,
             name='Send Wallet',
-            entropy='send-entropy',
+            entropy='000102030405060708090a0b0c0d0e0f',
             passphrase='',
         )
         WalletAddress.objects.create(

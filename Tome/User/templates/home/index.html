@@ -141,7 +141,7 @@
             <div class="stat"><div class="stat-label">My swap offers</div><div class="stat-value">{{ open_offer_count }}</div></div>
         </section>
         <nav class="actions" aria-label="Quick actions">
-            <a class="action primary" href="{% url 'dex_orderbook' %}"><i data-lucide="candlestick-chart"></i>Trade</a>
+            <a class="action primary" href="{% url 'markets' %}"><i data-lucide="candlestick-chart"></i>Choose a market</a>
             <a class="action" href="{% url 'send_funds' %}"><i data-lucide="send"></i>Send</a>
             <a class="action" href="{% url 'recieve_funds' %}"><i data-lucide="download"></i>Receive</a>
             <a class="action" href="{% url 'create_listing' %}"><i data-lucide="repeat-2"></i>Create atomic swap</a>
@@ -153,7 +153,7 @@
                 <div class="data-panel table-scroll">
                     {% if markets %}<table><thead><tr><th>Pair</th><th>Last</th><th>24h</th><th>Volume</th></tr></thead><tbody>
                     {% for market in markets %}<tr>
-                        <td><a class="pair-link" href="{% url 'dex_orderbook' %}?pair={{ market.id }}" title="{{ market.base_token }}/{{ market.quote_token }}">{{ market.base_token|market_symbol }}/{{ market.quote_token|market_symbol }}</a></td>
+                        <td><a class="pair-link" href="{% url 'dex_orderbook' market.pair_slug %}" title="{{ market.base_token }}/{{ market.quote_token }}">{{ market.base_token|market_symbol }}/{{ market.quote_token|market_symbol }}</a></td>
                         <td>{{ market.last_price|floatformat:8 }}</td>
                         <td class="{% if market.price_change_24h > 0 %}positive{% elif market.price_change_24h < 0 %}negative{% endif %}">{{ market.price_change_24h|floatformat:2 }}%</td>
                         <td>{{ market.volume_24h|floatformat:4 }}</td>

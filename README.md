@@ -56,7 +56,7 @@ collection of disconnected protocol demos. The near-term priorities are:
   network isolation.
 - Fungible market registry and order book with limit, market, and stop-loss
   order workflows.
-- Canonical routes at `/markets/` and `/defi/p2p/available/`, with redirects
+- Canonical routes at `/defi/p2p/dex/<base>-<quote>/` and `/defi/p2p/available/`, with redirects
   retained for older listing URLs.
 
 ### Messaging Channels and Metadata Governance

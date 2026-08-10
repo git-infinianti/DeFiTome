@@ -13,8 +13,9 @@ from DeFi.models import SwapOffer
 from API.models import DexMarketEventMessage, MessageChannelPolicy
 from Media.models import IPFSUpload
 from Wallet.models import TrackedAsset
+from Wallet.rpc import InsufficientSpendableBalance
 from Settings.models import MembershipPlan, UserMembership
-from .models import BalanceLock, LimitOrder, Listing, ListingItem, MarketOrder, NFT, OrderExecution, TradingPair, UniqueAssetMintRequest
+from .models import BalanceLock, LimitOrder, Listing, ListingItem, MarketFavorite, MarketOrder, NFT, OrderExecution, TradingPair, UniqueAssetMintRequest
 from .templatetags.market_tags import asset_tooltip, asset_type_label, market_symbol
 from .views import _match_order, _settle_market_fill, _sync_order_balance_lock
 
@@ -599,6 +600,113 @@ class MarketAuthorizationAndNetworkIsolationTests(TestCase):
 		self.assertEqual(len(markets), 1)
 		self.assertEqual(markets[0].base_token, 'TEST')
 
+	def test_authorized_manager_can_see_and_resume_paused_market(self):
+		plan = MembershipPlan.objects.create(
+			code='market-operator',
+			name='Market Operator',
+			feature_codes=['market_management'],
+		)
+		UserMembership.objects.create(user=self.user, plan=plan, status='active')
+		pair = TradingPair.objects.create(
+			base_token='TOKEN',
+			quote_token='EVR',
+			network_mode='testnet',
+			is_active=False,
+		)
+		self.client.login(username='market-user', password='testpass123')
+
+		market_page = self.client.get(reverse('markets'))
+
+		self.assertContains(market_page, 'Paused')
+		self.assertContains(market_page, 'Resume')
+		self.assertEqual(self.client.get(reverse('toggle_market_status', args=[pair.pk])).status_code, 405)
+		response = self.client.post(reverse('toggle_market_status', args=[pair.pk]))
+		pair.refresh_from_db()
+		self.assertRedirects(response, reverse('markets'))
+		self.assertTrue(pair.is_active)
+
+	def test_pair_orientation_can_change_only_before_market_activity(self):
+		plan = MembershipPlan.objects.create(
+			code='pair-operator',
+			name='Pair Operator',
+			feature_codes=['market_management'],
+		)
+		UserMembership.objects.create(user=self.user, plan=plan, status='active')
+		pair = TradingPair.objects.create(base_token='TOKEN', quote_token='EVR', network_mode='testnet')
+		self.client.login(username='market-user', password='testpass123')
+
+		response = self.client.post(reverse('reverse_market_pair', args=[pair.pk]))
+
+		pair.refresh_from_db()
+		self.assertRedirects(response, reverse('markets'))
+		self.assertEqual((pair.base_token, pair.quote_token), ('EVR', 'TOKEN'))
+		self.assertEqual(pair.pair_slug, 'evr-token')
+
+		LimitOrder.objects.create(
+			user=self.user,
+			trading_pair=pair,
+			side='buy',
+			price=Decimal('1'),
+			quantity=Decimal('1'),
+		)
+		blocked = self.client.post(reverse('reverse_market_pair', args=[pair.pk]), follow=True)
+		pair.refresh_from_db()
+		self.assertContains(blocked, 'Pair orientation cannot change after orders or trades exist')
+		self.assertEqual((pair.base_token, pair.quote_token), ('EVR', 'TOKEN'))
+
+	def test_pair_slug_is_readable_and_collision_safe_for_native_asset_names(self):
+		simple = TradingPair.objects.create(base_token='SYSTEM0808', quote_token='EVR', network_mode='testnet')
+		sub_asset = TradingPair.objects.create(base_token='ROOT/SUB', quote_token='EVR', network_mode='testnet')
+
+		self.assertEqual(simple.pair_slug, 'system0808-evr')
+		self.assertTrue(sub_asset.pair_slug.startswith('root-sub-evr-'))
+		self.assertEqual(
+			reverse('dex_orderbook', args=[simple.pair_slug]),
+			'/defi/p2p/dex/system0808-evr/',
+		)
+
+	def test_legacy_numeric_trade_url_redirects_to_pair_slug(self):
+		pair = TradingPair.objects.create(base_token='TOKEN', quote_token='EVR', network_mode='testnet')
+		self.client.login(username='market-user', password='testpass123')
+
+		response = self.client.get(reverse('legacy_market_trade'), {'pair': pair.pk})
+
+		self.assertRedirects(
+			response,
+			reverse('dex_orderbook', args=[pair.pair_slug]),
+			status_code=301,
+		)
+
+	def test_market_favorite_toggle_adds_and_removes_for_current_user(self):
+		pair = TradingPair.objects.create(base_token='TOKEN', quote_token='EVR', network_mode='testnet')
+		self.client.login(username='market-user', password='testpass123')
+		url = reverse('toggle_market_favorite', args=[pair.pk])
+
+		added = self.client.post(url, {'filter': 'TOKEN'})
+
+		self.assertRedirects(added, f"{reverse('markets')}?filter=TOKEN")
+		self.assertTrue(MarketFavorite.objects.filter(user=self.user, trading_pair=pair).exists())
+		market_page = self.client.get(reverse('markets'))
+		self.assertContains(market_page, 'Remove TOKEN/EVR from favorites')
+		other_pair = TradingPair.objects.create(base_token='OTHER', quote_token='EVR', network_mode='testnet')
+		favorites_page = self.client.get(reverse('markets'), {'filter': 'FAVORITES'})
+		self.assertEqual(list(favorites_page.context['markets']), [pair])
+		self.assertNotContains(favorites_page, reverse('dex_orderbook', args=[other_pair.pair_slug]))
+
+		removed = self.client.post(url)
+
+		self.assertRedirects(removed, reverse('markets'))
+		self.assertFalse(MarketFavorite.objects.filter(user=self.user, trading_pair=pair).exists())
+
+	def test_market_favorite_toggle_is_post_only_and_network_scoped(self):
+		mainnet_pair = TradingPair.objects.create(base_token='MAIN', quote_token='EVR', network_mode='mainnet')
+		self.client.login(username='market-user', password='testpass123')
+		url = reverse('toggle_market_favorite', args=[mainnet_pair.pk])
+
+		self.assertEqual(self.client.get(url).status_code, 405)
+		self.assertEqual(self.client.post(url).status_code, 404)
+		self.assertFalse(MarketFavorite.objects.exists())
+
 	@patch('Listings.views._get_user_asset_balances', return_value=({'TOKENA': Decimal('5'), 'TOKENB': Decimal('5')}, None))
 	def test_reverse_market_creation_is_rejected_as_redundant(self, _mock_balances):
 		plan = MembershipPlan.objects.create(
@@ -740,7 +848,7 @@ class MarketSettlementRoutingTests(TestCase):
 		pair = TradingPair.objects.create(base_token='WHOLE', quote_token='CENTS', network_mode='testnet')
 		self.client.login(username='market-buyer', password='testpass123')
 
-		response = self.client.get(reverse('dex_orderbook'), {'pair': pair.pk})
+		response = self.client.get(reverse('dex_orderbook', args=[pair.pair_slug]))
 
 		mock_live_balance.assert_not_called()
 		mock_get_asset_units.assert_not_called()
@@ -830,7 +938,7 @@ class MarketSettlementRoutingTests(TestCase):
 			follow=True,
 		)
 
-		self.assertRedirects(first, reverse('dex_orderbook'))
+		self.assertRedirects(first, reverse('dex_orderbook', args=[pair.pair_slug]))
 		balance_lock = BalanceLock.objects.get(status='locked')
 		self.assertEqual(balance_lock.asset_symbol, 'TOKEN')
 		self.assertEqual(balance_lock.amount, Decimal('4'))
@@ -889,13 +997,56 @@ class MarketSettlementRoutingTests(TestCase):
 		)
 		self.client.login(username='market-buyer', password='testpass123')
 
-		response = self.client.get(reverse('dex_orderbook'), {'pair': pair.pk})
+		response = self.client.get(reverse('dex_orderbook', args=[pair.pair_slug]))
 
 		self.assertContains(response, '2.00000000')
 		self.assertContains(response, '3.0000 · Yours')
 		self.assertContains(response, 'refreshPairBalances')
 		self.assertContains(response, 'window.setInterval(refreshPairBalances, 15000)')
 		self.assertContains(response, 'id="market-available-value"', html=False)
+
+	def test_order_book_chart_history_is_scoped_to_selected_pair(self):
+		selected_pair = TradingPair.objects.create(base_token='TOKEN', quote_token='EVR', network_mode='testnet')
+		other_pair = TradingPair.objects.create(base_token='OTHER', quote_token='EVR', network_mode='testnet')
+		OrderExecution.objects.create(
+			trading_pair=selected_pair,
+			buyer=self.buyer,
+			seller=self.seller,
+			price=Decimal('1.25'),
+			quantity=Decimal('2'),
+		)
+		OrderExecution.objects.create(
+			trading_pair=other_pair,
+			buyer=self.buyer,
+			seller=self.seller,
+			price=Decimal('99'),
+			quantity=Decimal('1'),
+		)
+		self.client.login(username='market-buyer', password='testpass123')
+
+		response = self.client.get(reverse('dex_orderbook', args=[selected_pair.pair_slug]))
+
+		self.assertEqual([trade['price'] for trade in response.context['chart_trades']], ['1.25000000'])
+		self.assertContains(response, 'id="chart-trades-data"', html=False)
+		self.assertContains(response, reverse('dex_orderbook', args=[other_pair.pair_slug]))
+		self.assertNotContains(response, '&quot;price&quot;: &quot;99.00000000&quot;')
+
+	def test_market_and_stop_loss_redirects_preserve_selected_pair(self):
+		pair = TradingPair.objects.create(base_token='TOKEN', quote_token='EVR', network_mode='testnet')
+		self.client.login(username='market-buyer', password='testpass123')
+
+		market_response = self.client.post(
+			reverse('place_market_order'),
+			{'pair_id': pair.pk, 'side': 'buy', 'quantity': '1'},
+		)
+		stop_response = self.client.post(
+			reverse('place_stop_loss_order'),
+			{'pair_id': pair.pk, 'side': 'sell', 'trigger_price': '1', 'quantity': '1'},
+		)
+
+		expected_url = reverse('dex_orderbook', args=[pair.pair_slug])
+		self.assertRedirects(market_response, expected_url)
+		self.assertRedirects(stop_response, expected_url)
 
 	def test_raw_settlement_rejects_self_trade_before_wallet_access(self):
 		pair = TradingPair.objects.create(base_token='TOKEN', quote_token='EVR', network_mode='testnet')
@@ -904,6 +1055,7 @@ class MarketSettlementRoutingTests(TestCase):
 			_settle_market_fill(pair, self.buyer, self.buyer, Decimal('1'), Decimal('1'))
 
 	def test_order_book_shows_active_atomic_listing_and_marks_creator(self):
+		pair = TradingPair.objects.create(base_token='TOKEN', quote_token='EVR', network_mode='testnet')
 		item = ListingItem.objects.create(
 			title='Collectible',
 			description='',
@@ -931,7 +1083,7 @@ class MarketSettlementRoutingTests(TestCase):
 		)
 		self.client.login(username='market-buyer', password='testpass123')
 
-		response = self.client.get(reverse('dex_orderbook'))
+		response = self.client.get(reverse('dex_orderbook', args=[pair.pair_slug]))
 
 		self.assertContains(response, 'COLLECTIBLE#1')
 		self.assertContains(response, 'title="Native coin: EVR">EVR</span>', html=False)
@@ -971,7 +1123,7 @@ class MarketSettlementRoutingTests(TestCase):
 			{'pair_id': pair.pk, 'side': 'sell', 'price': '1', 'quantity': '1'},
 		)
 
-		self.assertRedirects(response, reverse('dex_orderbook'))
+		self.assertRedirects(response, reverse('dex_orderbook', args=[pair.pair_slug]))
 		order = LimitOrder.objects.get()
 		self.assertTrue(DexMarketEventMessage.objects.filter(
 			trading_pair_id=pair.pk,
@@ -1064,6 +1216,86 @@ class MarketSettlementRoutingTests(TestCase):
 		buy_order.refresh_from_db()
 		self.assertEqual(buy_order.filled_quantity, Decimal('0'))
 		self.assertEqual(buy_order.status, 'pending')
+		self.assertFalse(OrderExecution.objects.exists())
+
+	@patch('Listings.views._settle_market_fill')
+	def test_unspendable_maker_is_deferred_and_next_maker_can_fill(self, mock_settlement):
+		mock_settlement.side_effect = [
+			InsufficientSpendableBalance(
+				'Insufficient spendable SYSTEM0808 balance. Needed: 0.56, available: 0.'
+			),
+			'c' * 64,
+		]
+		pair = TradingPair.objects.create(base_token='SYSTEM0808', quote_token='EVR')
+		best_maker = LimitOrder.objects.create(
+			user=self.seller,
+			trading_pair=pair,
+			side='sell',
+			price=Decimal('1'),
+			quantity=Decimal('1'),
+		)
+		other_seller = User.objects.create_user(username='other-seller', password='testpass123')
+		next_maker = LimitOrder.objects.create(
+			user=other_seller,
+			trading_pair=pair,
+			side='sell',
+			price=Decimal('2'),
+			quantity=Decimal('1'),
+		)
+		taker = LimitOrder.objects.create(
+			user=self.buyer,
+			trading_pair=pair,
+			side='buy',
+			price=Decimal('2'),
+			quantity=Decimal('1'),
+		)
+
+		_match_order(taker)
+
+		best_maker.refresh_from_db()
+		next_maker.refresh_from_db()
+		taker.refresh_from_db()
+		self.assertEqual(best_maker.status, 'pending')
+		self.assertEqual(best_maker.filled_quantity, Decimal('0'))
+		self.assertEqual(next_maker.status, 'filled')
+		self.assertEqual(taker.status, 'filled')
+		self.assertEqual(OrderExecution.objects.get().seller, other_seller)
+
+	@patch(
+		'Listings.views._settle_market_fill',
+		side_effect=InsufficientSpendableBalance(
+			'Insufficient spendable SYSTEM0808 balance. Needed: 0.56, available: 0.'
+		),
+	)
+	@patch('Listings.views._get_verified_available_token_balance', return_value=Decimal('10'))
+	def test_market_order_defers_when_all_makers_await_spendable_change(
+		self,
+		_mock_balance,
+		_mock_settlement,
+	):
+		pair = TradingPair.objects.create(base_token='SYSTEM0808', quote_token='EVR', network_mode='testnet')
+		maker = LimitOrder.objects.create(
+			user=self.seller,
+			trading_pair=pair,
+			side='sell',
+			price=Decimal('1'),
+			quantity=Decimal('1'),
+		)
+		self.client.login(username='market-buyer', password='testpass123')
+
+		response = self.client.post(
+			reverse('place_market_order'),
+			{'pair_id': pair.pk, 'side': 'buy', 'quantity': '0.56'},
+			follow=True,
+		)
+
+		maker.refresh_from_db()
+		self.assertContains(
+			response,
+			'Matching orders are awaiting spendable on-chain funds or change confirmation.',
+		)
+		self.assertEqual(maker.status, 'pending')
+		self.assertFalse(MarketOrder.objects.exists())
 		self.assertFalse(OrderExecution.objects.exists())
 
 
