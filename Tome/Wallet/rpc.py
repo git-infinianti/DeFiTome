@@ -4,8 +4,9 @@ from collections import OrderedDict
 from decimal import Decimal, InvalidOperation, ROUND_DOWN, ROUND_UP
 
 from base58 import b58decode, b58decode_check, b58encode_check
+from django.conf import settings
 
-from Tome.rpc_client import RPC
+from Tome.rpc_client import RPC, PublicRpcClient
 
 SATOSHIS_PER_EVR = Decimal('100000000')
 DEFAULT_FEE_EVR = Decimal('0.0001')  # 0.0001 EVR as a default fee fallback
@@ -240,7 +241,6 @@ def _get_estimated_feerate_evr_per_kb(conf_target=DEFAULT_FEE_CONF_TARGET,
     target = max(1, min(1008, int(conf_target or DEFAULT_FEE_CONF_TARGET)))
     mode = str(estimate_mode or DEFAULT_FEE_ESTIMATE_MODE).upper()
 
-    estimates = []
     metadata = {'errors': [], 'sources': {}}
 
     smart_result = None
@@ -255,24 +255,13 @@ def _get_estimated_feerate_evr_per_kb(conf_target=DEFAULT_FEE_CONF_TARGET,
         metadata['sources']['estimatesmartfee'] = smart_result
         smart_feerate = _parse_positive_decimal(smart_result.get('feerate'))
         if smart_feerate is not None:
-            estimates.append(smart_feerate)
+            return smart_feerate, metadata
         else:
             metadata['errors'].extend(smart_result.get('errors') or ['estimatesmartfee returned no feerate.'])
     elif smart_result is not None:
         metadata['errors'].append(f'Unexpected estimatesmartfee response: {smart_result}')
 
-    try:
-        legacy_result = RPC.estimatefee(target)
-        metadata['sources']['estimatefee'] = legacy_result
-        legacy_feerate = _parse_positive_decimal(legacy_result)
-        if legacy_feerate is not None:
-            estimates.append(legacy_feerate)
-        else:
-            metadata['errors'].append(f'estimatefee returned no usable feerate: {legacy_result}')
-    except Exception as exc:
-        metadata['errors'].append(f'estimatefee: {str(exc)}')
-
-    return (max(estimates) if estimates else None), metadata
+    return None, metadata
 
 
 def _parse_positive_decimal(value):
@@ -299,18 +288,6 @@ def _get_fee_floor_evr_per_kb():
                 candidates.append(mempool_floor)
     except Exception as exc:
         errors.append(f'getmempoolinfo: {str(exc)}')
-
-    try:
-        network_info = RPC.getnetworkinfo()
-        if isinstance(network_info, dict):
-            relay_fee = _parse_positive_decimal(network_info.get('relayfee'))
-            incremental_fee = _parse_positive_decimal(network_info.get('incrementalfee'))
-            if relay_fee is not None:
-                candidates.append(relay_fee)
-            if incremental_fee is not None:
-                candidates.append(incremental_fee)
-    except Exception as exc:
-        errors.append(f'getnetworkinfo: {str(exc)}')
 
     return max(candidates), {'errors': errors}
 
@@ -1117,6 +1094,7 @@ def create_raw_asset_transfer_transaction(from_address, to_address, asset_name, 
 
     utxos = _get_address_utxos(from_address)
     selected_keys = {(item['txid'], item['vout']) for item in asset_inputs}
+    mempool_spent = _mempool_spent_outpoints()
 
     evr_candidates = sorted(
         [
@@ -1127,6 +1105,10 @@ def create_raw_asset_transfer_transaction(from_address, to_address, asset_name, 
                 item.get('txid'),
                 int(item.get('outputIndex', item.get('vout', -1)))
             ) not in selected_keys
+            and (
+                item.get('txid'),
+                int(item.get('outputIndex', item.get('vout', -1)))
+            ) not in mempool_spent
         ],
         key=lambda item: int(item.get('satoshis', 0)),
         reverse=True,
@@ -1760,14 +1742,29 @@ def create_and_send_issue_unique_transaction(
     if not asset_tags:
         raise Exception('asset_tags must contain at least one unique tag.')
 
-    operation_payload = {
-        'issue_unique': {
-            'root_name': str(root_name),
-            'asset_tags': [str(tag) for tag in asset_tags],
+    normalized_tags = [str(tag) for tag in asset_tags]
+    normalized_ipfs_hashes = [str(item) for item in (ipfs_hashes or [])]
+    if len(normalized_tags) == 1 and len(normalized_ipfs_hashes) <= 1:
+        operation_payload = {
+            '_issue_new_asset': {
+                'asset_name': f"{str(root_name)}#{normalized_tags[0]}",
+                'asset_quantity': 1.0,
+                'units': 0,
+                'reissuable': 0,
+                'has_ipfs': int(bool(normalized_ipfs_hashes)),
+            }
         }
-    }
-    if ipfs_hashes:
-        operation_payload['issue_unique']['ipfs_hashes'] = [str(item) for item in ipfs_hashes]
+        if normalized_ipfs_hashes:
+            operation_payload['_issue_new_asset']['ipfs_hash'] = normalized_ipfs_hashes[0]
+    else:
+        operation_payload = {
+            'issue_unique': {
+                'root_name': str(root_name),
+                'asset_tags': normalized_tags,
+            }
+        }
+        if normalized_ipfs_hashes:
+            operation_payload['issue_unique']['ipfs_hashes'] = normalized_ipfs_hashes
 
     owner_change_output = None
     if owner_change_address:
@@ -2127,6 +2124,170 @@ def create_and_send_untag_addresses_transaction(
         locktime=locktime,
         replaceable=replaceable,
     )
+
+
+def _get_restricted_asset_authority_evidence(
+    rpc_client,
+    restricted_asset_name,
+    required_verifier_string,
+    required_qualifier_name,
+    authority_address,
+    minimum_restricted_asset_balance=Decimal('1'),
+):
+    """Return chain evidence that an address is eligible to authorize a restricted workflow."""
+    asset_name = str(restricted_asset_name or '').strip().upper()
+    verifier_string = str(required_verifier_string or '').strip()
+    qualifier_name = str(required_qualifier_name or '').strip().upper()
+    address = str(authority_address or '').strip()
+    minimum_balance = Decimal(str(minimum_restricted_asset_balance or 0))
+
+    if not asset_name.startswith('$'):
+        raise ValueError('Restricted authority assets must use the $ asset-name prefix.')
+    if not verifier_string:
+        raise ValueError('A restricted authority verifier string is required.')
+    if not qualifier_name.startswith('#'):
+        raise ValueError('Restricted authority qualifiers must use the # asset-name prefix.')
+    if not address:
+        raise ValueError('A restricted authority address is required.')
+    if minimum_balance <= 0:
+        raise ValueError('The minimum restricted authority balance must be greater than zero.')
+
+    on_chain_verifier = str(rpc_client.getverifierstring(asset_name) or '').strip()
+    has_qualifier = bool(rpc_client.checkaddresstag(address, qualifier_name))
+    balances = rpc_client.listassetbalancesbyaddress(address) or {}
+    restricted_balance = Decimal(str((balances or {}).get(asset_name, 0) or 0))
+    verifier_matches = on_chain_verifier == verifier_string
+    has_minimum_balance = restricted_balance >= minimum_balance
+
+    return {
+        'restricted_asset_name': asset_name,
+        'authority_address': address,
+        'required_verifier_string': verifier_string,
+        'on_chain_verifier_string': on_chain_verifier,
+        'required_qualifier_name': qualifier_name,
+        'has_qualifier': has_qualifier,
+        'restricted_asset_balance': format(restricted_balance, 'f'),
+        'minimum_restricted_asset_balance': format(minimum_balance, 'f'),
+        'verifier_matches': verifier_matches,
+        'has_minimum_balance': has_minimum_balance,
+        'is_authorized': verifier_matches and has_qualifier and has_minimum_balance,
+    }
+
+
+def get_restricted_asset_authority_evidence(
+    restricted_asset_name,
+    required_verifier_string,
+    required_qualifier_name,
+    authority_address,
+    minimum_restricted_asset_balance=Decimal('1'),
+):
+    """Return restricted-authority evidence using the active routed RPC client."""
+    return _get_restricted_asset_authority_evidence(
+        RPC,
+        restricted_asset_name,
+        required_verifier_string,
+        required_qualifier_name,
+        authority_address,
+        minimum_restricted_asset_balance,
+    )
+
+
+def get_public_restricted_asset_authority_evidence(
+    restricted_asset_name,
+    required_verifier_string,
+    required_qualifier_name,
+    authority_address,
+    minimum_restricted_asset_balance=Decimal('1'),
+    network_mode='testnet',
+):
+    """Return restricted-authority evidence directly from the configured public endpoint."""
+    normalized_network = str(network_mode or 'testnet').strip().lower()
+    if normalized_network == 'mainnet':
+        endpoint = getattr(
+            settings,
+            'EVRMORE_PUBLIC_RPC_MAINNET_URL',
+            'https://evr-rpc-mainnet.evrmorecoin.org/rpc',
+        )
+    elif normalized_network == 'testnet':
+        endpoint = getattr(
+            settings,
+            'EVRMORE_PUBLIC_RPC_TESTNET_URL',
+            'https://evr-rpc-testnet.evrmorecoin.org/rpc',
+        )
+    else:
+        raise ValueError('Restricted authority evidence requires a supported Evrmore network.')
+
+    return _get_restricted_asset_authority_evidence(
+        PublicRpcClient(
+            endpoint,
+            timeout=getattr(settings, 'RPC_PUBLIC_TIMEOUT_SECONDS', 10),
+        ),
+        restricted_asset_name,
+        required_verifier_string,
+        required_qualifier_name,
+        authority_address,
+        minimum_restricted_asset_balance,
+    )
+
+
+def get_public_transaction_evidence(
+    transaction_id,
+    network_mode='testnet',
+    minimum_confirmations=1,
+):
+    """Return direct public-RPC evidence that a transaction is confirmed on the selected network."""
+    txid = str(transaction_id or '').strip().lower()
+    if len(txid) != 64 or any(character not in '0123456789abcdef' for character in txid):
+        raise ValueError('A canonical 64-character hexadecimal transaction id is required.')
+    try:
+        required_confirmations = int(minimum_confirmations)
+    except (TypeError, ValueError) as exc:
+        raise ValueError('Minimum transaction confirmations must be a whole number.') from exc
+    if required_confirmations < 1:
+        raise ValueError('At least one transaction confirmation is required.')
+
+    normalized_network = str(network_mode or 'testnet').strip().lower()
+    if normalized_network == 'mainnet':
+        endpoint = getattr(
+            settings,
+            'EVRMORE_PUBLIC_RPC_MAINNET_URL',
+            'https://evr-rpc-mainnet.evrmorecoin.org/rpc',
+        )
+    elif normalized_network == 'testnet':
+        endpoint = getattr(
+            settings,
+            'EVRMORE_PUBLIC_RPC_TESTNET_URL',
+            'https://evr-rpc-testnet.evrmorecoin.org/rpc',
+        )
+    else:
+        raise ValueError('Transaction evidence requires a supported Evrmore network.')
+
+    transaction_data = PublicRpcClient(
+        endpoint,
+        timeout=getattr(settings, 'RPC_PUBLIC_TIMEOUT_SECONDS', 10),
+    ).getrawtransaction(txid, True)
+    if not isinstance(transaction_data, dict):
+        raise ValueError('Public RPC returned invalid transaction evidence.')
+    observed_txid = str(transaction_data.get('txid') or '').strip().lower()
+    if observed_txid != txid:
+        raise ValueError('Public RPC transaction evidence did not match the requested transaction id.')
+    try:
+        confirmations = int(transaction_data.get('confirmations') or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError('Public RPC transaction evidence contained invalid confirmations.') from exc
+    if confirmations < required_confirmations:
+        raise ValueError(
+            f'Transaction {txid} has {confirmations} confirmations; '
+            f'at least {required_confirmations} are required.'
+        )
+
+    return {
+        'transaction_id': txid,
+        'confirmations': confirmations,
+        'block_hash': str(transaction_data.get('blockhash') or ''),
+        'block_time': transaction_data.get('blocktime'),
+        'transaction_time': transaction_data.get('time'),
+    }
 
 
 def create_and_send_freeze_addresses_transaction(

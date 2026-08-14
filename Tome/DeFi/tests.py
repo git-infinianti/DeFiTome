@@ -2,6 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
+import uuid
 
 from django.contrib.auth.models import User
 from django.test import TestCase, Client
@@ -10,8 +11,20 @@ from django.utils import timezone
 from DeFi.cleanup import purge_expired_swap_offers
 from Wallet.models import TrackedAsset
 from Wallet.models import UserWallet, WalletAddress
-from API.models import AtomicSwapTransferMessage, DexMarketEventMessage, MessageChannelPolicy
+from API.channel_event_protocol import add_payload_checksum
+from API.models import (
+    AtomicSwapTransferMessage,
+    ChannelConsumer,
+    ChannelEvent,
+    ChannelEventApplication,
+    ChannelReconciliationIssue,
+    ChannelSubscription,
+    DexMarketEventMessage,
+    MessageChannelPolicy,
+)
+from API.channel_console_lib import DEFAULT_ALLOWED_STAGES
 from DeFi.message_channels import record_atomic_swap_stage_event, record_market_stage_event
+from DeFi.channel_reconciliation import reconcile_atomic_swap_subscription
 from Listings.models import LimitOrder, TradingPair
 from .models import (
     SwapFundingLock,
@@ -41,22 +54,14 @@ class AtomicSwapAcceptanceTestCase(TestCase):
             expires_at=timezone.now() + timedelta(days=1),
         )
         self.channel_policy = MessageChannelPolicy.objects.create(
-            channel_key='atomic_swap_transfer',
+            channel_key='tome0808_swapflow',
             channel_name='SYSTEM~SWAPS',
             network_mode='testnet',
-            version=1,
+            version=5,
             status='active',
             owner_account=self.seller,
             manager_account=self.seller,
-            allowed_stages=[
-                'offer_created',
-                'settlement_lock_created',
-                'settlement_build_failed',
-                'settlement_pending_reconciliation',
-                'settlement_broadcasted',
-                'swap_cancelled',
-                'swap_expired',
-            ],
+            allowed_stages=list(DEFAULT_ALLOWED_STAGES),
             chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
         )
         self.record_event_patcher = patch('DeFi.views.record_atomic_swap_stage_event')
@@ -64,6 +69,19 @@ class AtomicSwapAcceptanceTestCase(TestCase):
         self.mock_view_record_event.return_value.status = 'broadcasted'
         self.addCleanup(self.record_event_patcher.stop)
         self.client = Client()
+
+    def test_swap_offer_has_a_stable_reconciliation_identifier(self):
+        duplicate_offer = SwapOffer.objects.create(
+            initiator=self.seller,
+            offer_token='COLLECTIBLE#2',
+            offer_amount=Decimal('1'),
+            request_token='EVR',
+            request_amount=Decimal('3'),
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+
+        self.assertIsNotNone(self.swap_offer.reconciliation_id)
+        self.assertNotEqual(self.swap_offer.reconciliation_id, duplicate_offer.reconciliation_id)
 
     @patch('DeFi.message_channels.create_and_send_transfer_with_message_transaction')
     @patch('DeFi.message_channels.KuboAPIUploader.upload_bytes')
@@ -151,17 +169,9 @@ class AtomicSwapAcceptanceTestCase(TestCase):
             index=0,
             is_change=False,
         )
-        policy = MessageChannelPolicy.objects.create(
-            channel_key='dex_market_events',
-            channel_name='ROOT~MARKETS',
-            network_mode='testnet',
-            version=1,
-            status='active',
-            owner_account=self.seller,
-            manager_account=self.seller,
-            allowed_stages=['market_created', 'order_created'],
-            strict_rules={},
-        )
+        self.channel_policy.channel_name = 'ROOT~MARKETS'
+        self.channel_policy.allowed_stages = list(DEFAULT_ALLOWED_STAGES)
+        self.channel_policy.save(update_fields=['channel_name', 'allowed_stages', 'updated_at'])
         pair = TradingPair.objects.create(base_token='TOKEN', quote_token='EVR', network_mode='testnet')
         order = LimitOrder.objects.create(
             user=self.seller,
@@ -176,10 +186,12 @@ class AtomicSwapAcceptanceTestCase(TestCase):
 
         event = record_market_stage_event(pair, 'order_created', self.seller, order=order)[0]
 
-        self.assertEqual(event.policy, policy)
+        self.assertEqual(event.policy, self.channel_policy)
         self.assertEqual(event.status, 'broadcasted')
         self.assertEqual(event.payload['event_type'], 'dex_market_event')
-        self.assertEqual(event.payload['order']['id'], order.id)
+        self.assertEqual(event.payload['details']['order']['id'], order.id)
+        self.assertEqual(event.payload['aggregate_type'], 'dex_order')
+        self.assertIn('payload_checksum', event.payload)
         self.assertTrue(DexMarketEventMessage.objects.filter(pk=event.pk).exists())
         mock_raw_message.assert_called_once_with(
             from_address='EMarketChannelAddress',
@@ -400,6 +412,119 @@ class AtomicSwapAcceptanceTestCase(TestCase):
         self.assertEqual(self.swap_offer.status, 'pending')
         self.assertFalse(SwapFundingLock.objects.filter(swap_offer=self.swap_offer).exists())
         mock_available.assert_not_called()
+
+
+class AtomicSwapChannelReconciliationTests(TestCase):
+    def setUp(self):
+        self.seller = User.objects.create_user(username='reconcile-seller', password='testpass123')
+        self.policy = MessageChannelPolicy.objects.create(
+            channel_key='tome0808_swapflow',
+            channel_name='TOME0808~SWAPFLOWV5',
+            network_mode='testnet',
+            version=5,
+            status='active',
+            owner_account=self.seller,
+            manager_account=self.seller,
+            allowed_stages=list(DEFAULT_ALLOWED_STAGES),
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
+        )
+        self.offer = SwapOffer.objects.create(
+            initiator=self.seller,
+            offer_token='COLLECTIBLE#1',
+            offer_amount=Decimal('1'),
+            request_token='EVR',
+            request_amount=Decimal('2'),
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        self.subscription = ChannelSubscription.objects.create(
+            user=self.seller,
+            policy=self.policy,
+            role=ChannelSubscription.ROLE_PARTICIPANT,
+        )
+        self.consumer = ChannelConsumer.objects.create(
+            network_mode='testnet',
+            consumer_key='reconciliation-test-node',
+            display_name='Reconciliation test node',
+        )
+
+    def _event(self, *, request_amount='2', aggregate_sequence=1, block_transaction_index=0):
+        payload = add_payload_checksum({
+            'event_type': 'atomic_swap_transfer',
+            'event_version': 1,
+            'event_id': str(uuid.uuid4()),
+            'created_at': timezone.now().isoformat(),
+            'network_mode': 'testnet',
+            'aggregate_type': 'atomic_swap',
+            'aggregate_id': str(self.offer.reconciliation_id),
+            'aggregate_sequence': aggregate_sequence,
+            'stage': 'offer_created',
+            'correlation_id': str(self.offer.reconciliation_id),
+            'transaction_id': '',
+            'details': {
+                'offer': {'token': 'COLLECTIBLE#1', 'amount': '1'},
+                'request': {'token': 'EVR', 'amount': request_amount},
+            },
+        })
+        return ChannelEvent.objects.create(
+            policy=self.policy,
+            event_id=payload['event_id'],
+            event_type=payload['event_type'],
+            event_version=payload['event_version'],
+            aggregate_type=payload['aggregate_type'],
+            aggregate_id=payload['aggregate_id'],
+            aggregate_sequence=payload['aggregate_sequence'],
+            stage=payload['stage'],
+            network_mode=payload['network_mode'],
+            payload=payload,
+            payload_checksum=payload['payload_checksum'],
+            payload_ipfs_cid='QmReconcileEvent',
+            channel_txid=uuid.uuid4().hex + uuid.uuid4().hex,
+            channel_output_index=0,
+            block_height=123,
+            block_transaction_index=block_transaction_index,
+            block_hash='a' * 64,
+            confirmed_at=timezone.now(),
+            raw_observation={'channel': self.policy.channel_name},
+        )
+
+    def test_reconciliation_is_idempotent_for_a_matching_offer_projection(self):
+        event = self._event()
+
+        first_report = reconcile_atomic_swap_subscription(self.subscription, self.consumer)
+        second_report = reconcile_atomic_swap_subscription(self.subscription, self.consumer)
+
+        self.assertEqual(first_report['already_applied'], 1)
+        self.assertEqual(second_report['processed'], 0)
+        self.assertEqual(ChannelEventApplication.objects.filter(event=event).count(), 1)
+
+    def test_reconciliation_orders_events_by_transaction_then_output_index(self):
+        self._event(aggregate_sequence=1, block_transaction_index=0)
+        self._event(aggregate_sequence=2, block_transaction_index=1)
+
+        report = reconcile_atomic_swap_subscription(self.subscription, self.consumer)
+
+        cursor = self.subscription.cursors.get(consumer=self.consumer)
+        self.assertEqual(report['already_applied'], 2)
+        self.assertEqual(cursor.last_seen_height, 123)
+        self.assertEqual(cursor.last_seen_transaction_index, 1)
+        self.assertEqual(cursor.last_seen_output_index, 0)
+
+    def test_reconciliation_blocks_divergent_swap_terms(self):
+        self._event(request_amount='3')
+
+        report = reconcile_atomic_swap_subscription(self.subscription, self.consumer)
+
+        self.assertEqual(report['blocked'], 1)
+        self.assertTrue(ChannelReconciliationIssue.objects.filter(code='atomic_swap_terms_mismatch').exists())
+
+    def test_reconciliation_blocks_a_missing_aggregate_predecessor(self):
+        self._event(aggregate_sequence=2)
+
+        report = reconcile_atomic_swap_subscription(self.subscription, self.consumer)
+
+        self.assertEqual(report['blocked'], 1)
+        self.assertTrue(ChannelReconciliationIssue.objects.filter(code='atomic_swap_sequence_gap').exists())
+
 
 class FeeDistributionTestCase(TestCase):
     """Test cases for community liquidity fee distribution"""

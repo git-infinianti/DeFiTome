@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from decimal import Decimal
+import uuid
 
 # Constants for collateral calculations
 MAX_COLLATERAL_RATIO = Decimal('999')  # Maximum healthy collateral ratio
@@ -217,6 +218,8 @@ class SwapOffer(models.Model):
     request_amount = models.DecimalField(max_digits=20, decimal_places=8)
     
     network_mode = models.CharField(max_length=10, choices=NETWORK_MODE_CHOICES, default='testnet', db_index=True)
+    reconciliation_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
+    channel_event_sequence = models.PositiveIntegerField(default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     escrow_id = models.CharField(max_length=100, blank=True)
     expires_at = models.DateTimeField()

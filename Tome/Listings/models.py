@@ -1,7 +1,9 @@
 import hashlib
 import re
+import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.text import slugify
 
@@ -458,3 +460,471 @@ class UniqueAssetMintRequest(models.Model):
 
     def __str__(self):
         return f"UniqueAssetMintRequest(asset={self.unique_asset_name}, status={self.status})"
+
+
+class DecPokerAuditAuthority(models.Model):
+    STATUS_DRAFT = 'draft'
+    STATUS_ACTIVE = 'active'
+    STATUS_SUSPENDED = 'suspended'
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, 'Draft'),
+        (STATUS_ACTIVE, 'Active'),
+        (STATUS_SUSPENDED, 'Suspended'),
+    ]
+
+    NETWORK_MODE_CHOICES = [
+        ('testnet', 'Testnet'),
+        ('mainnet', 'Mainnet'),
+    ]
+
+    network_mode = models.CharField(
+        max_length=10,
+        choices=NETWORK_MODE_CHOICES,
+        default='testnet',
+        unique=True,
+    )
+    authority_account = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='dec_poker_audit_authorities',
+    )
+    authority_address = models.CharField(max_length=128)
+    restricted_asset_name = models.CharField(max_length=30)
+    required_qualifier_name = models.CharField(max_length=64)
+    required_verifier_string = models.CharField(max_length=255)
+    minimum_restricted_asset_balance = models.DecimalField(
+        max_digits=30,
+        decimal_places=8,
+        default=1,
+    )
+    enforce_settlement_writes = models.BooleanField(default=False)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    last_verified_at = models.DateTimeField(null=True, blank=True)
+    last_verification_evidence = models.JSONField(default=dict)
+    last_verification_error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('network_mode',)
+
+    def __str__(self):
+        return (
+            f"DecPokerAuditAuthority(network={self.network_mode}, "
+            f"asset={self.restricted_asset_name}, status={self.status})"
+        )
+
+
+class DecPokerGameInstance(models.Model):
+    STATUS_PENDING = 'pending'
+    STATUS_ACTIVE = 'active'
+    STATUS_PAUSED = 'paused'
+    STATUS_RETIRED = 'retired'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_ACTIVE, 'Active'),
+        (STATUS_PAUSED, 'Paused'),
+        (STATUS_RETIRED, 'Retired'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    NETWORK_MODE_CHOICES = [
+        ('testnet', 'Testnet'),
+        ('mainnet', 'Mainnet'),
+    ]
+
+    creator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='dec_created_games')
+    manager_account = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='dec_managed_games')
+    network_mode = models.CharField(max_length=10, choices=NETWORK_MODE_CHOICES, default='testnet', db_index=True)
+    title = models.CharField(max_length=120)
+    reward_asset_name = models.CharField(max_length=30)
+    reward_asset_units = models.PositiveSmallIntegerField(default=2)
+    reward_supply = models.DecimalField(max_digits=30, decimal_places=8, default=0)
+    entry_fee_evr = models.DecimalField(max_digits=20, decimal_places=8, default=0)
+    reward_per_win = models.DecimalField(max_digits=30, decimal_places=8, default=0)
+    instance_fee_evr = models.DecimalField(max_digits=20, decimal_places=8, default=0)
+    instance_fee_txid = models.CharField(max_length=100, blank=True, default='')
+    system_fee_address = models.CharField(max_length=128)
+    wager_treasury_bps = models.PositiveIntegerField(default=5000)
+    hand_cooldown_seconds = models.PositiveIntegerField(default=30)
+    hand_cooldown_until = models.DateTimeField(null=True, blank=True)
+
+    vault_profile = models.ForeignKey('Wallet.WalletProfile', on_delete=models.PROTECT, related_name='dec_vault_instances')
+    channel_policy = models.ForeignKey(
+        'API.MessageChannelPolicy',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='dec_game_instances',
+    )
+
+    reward_metadata_cid = models.CharField(max_length=255, blank=True, default='')
+    reward_issue_txid = models.CharField(max_length=100, blank=True, default='')
+    owner_transfer_txid = models.CharField(max_length=100, blank=True, default='')
+    profile_tag_asset_name = models.CharField(max_length=64, blank=True, default='')
+    profile_tag_txid = models.CharField(max_length=100, blank=True, default='')
+    profile_tag_error = models.TextField(blank=True, default='')
+    active_server_seed_hash = models.CharField(max_length=64, blank=True, default='')
+    active_server_seed_secret = models.CharField(max_length=128, blank=True, default='')
+    active_house_rule = models.CharField(
+        max_length=64,
+        default='dealer_best_two_of_three_wins_ties',
+    )
+    active_payout_policy = models.ForeignKey(
+        'DecPokerPayoutPolicy',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='active_for_instances',
+    )
+    next_hand_nonce = models.PositiveIntegerField(default=1)
+
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        constraints = [
+            models.UniqueConstraint(
+                fields=('network_mode', 'reward_asset_name'),
+                name='dec_game_reward_asset_unique_per_network',
+            ),
+        ]
+
+    def __str__(self):
+        return f"DecPokerGameInstance(title={self.title}, reward={self.reward_asset_name}, status={self.status})"
+
+
+class DecPokerPayoutPolicy(models.Model):
+    RTP_STATUS_VALUATION_REQUIRED = 'valuation_required'
+    RTP_STATUS_DISCLOSED = 'disclosed'
+    RTP_STATUS_CHOICES = [
+        (RTP_STATUS_VALUATION_REQUIRED, 'External valuation required'),
+        (RTP_STATUS_DISCLOSED, 'Disclosed percentage'),
+    ]
+
+    game_instance = models.ForeignKey(
+        DecPokerGameInstance,
+        on_delete=models.CASCADE,
+        related_name='payout_policies',
+    )
+    market_valuation = models.ForeignKey(
+        'DecPokerMarketValuation',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='payout_policies',
+    )
+    version = models.PositiveIntegerField()
+    game_rule_version = models.CharField(max_length=64)
+    house_rule = models.CharField(max_length=64)
+    wager_currency = models.CharField(max_length=30, default='EVR')
+    payout_currency = models.CharField(max_length=30)
+    minimum_wager_evr = models.DecimalField(max_digits=20, decimal_places=8)
+    reward_per_win = models.DecimalField(max_digits=30, decimal_places=8)
+    payout_cap_amount = models.DecimalField(max_digits=30, decimal_places=8)
+    win_probability_numerator = models.PositiveIntegerField()
+    win_probability_denominator = models.PositiveIntegerField()
+    expected_reward_per_wager = models.DecimalField(max_digits=30, decimal_places=8)
+    rtp_status = models.CharField(
+        max_length=32,
+        choices=RTP_STATUS_CHOICES,
+        default=RTP_STATUS_VALUATION_REQUIRED,
+    )
+    rtp_percent = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
+    rtp_disclosure = models.TextField()
+    payout_table = models.JSONField(default=dict)
+    authority_evidence = models.JSONField(default=dict)
+    policy_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('game_instance_id', '-version')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('game_instance', 'version'),
+                name='dec_poker_payout_policy_version_unique',
+            ),
+        ]
+
+    def __str__(self):
+        return f"DecPokerPayoutPolicy(game={self.game_instance_id}, version={self.version})"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError('DEC payout policies are immutable after publication.')
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('DEC payout policies cannot be deleted.')
+
+
+class DecPokerMarketValuation(models.Model):
+    SOURCE_VWAP = 'execution_vwap'
+    SOURCE_CHOICES = [
+        (SOURCE_VWAP, 'Settled execution VWAP'),
+    ]
+
+    game_instance = models.ForeignKey(
+        DecPokerGameInstance,
+        on_delete=models.PROTECT,
+        related_name='market_valuations',
+    )
+    trading_pair = models.ForeignKey(
+        TradingPair,
+        on_delete=models.PROTECT,
+        related_name='dec_poker_market_valuations',
+    )
+    source_type = models.CharField(max_length=32, choices=SOURCE_CHOICES, default=SOURCE_VWAP)
+    source_execution_count = models.PositiveIntegerField()
+    source_volume = models.DecimalField(max_digits=30, decimal_places=8)
+    source_started_at = models.DateTimeField()
+    source_ended_at = models.DateTimeField()
+    price_evr_per_reward_asset = models.DecimalField(max_digits=30, decimal_places=8)
+    expected_return_evr = models.DecimalField(max_digits=30, decimal_places=8)
+    rtp_percent = models.DecimalField(max_digits=12, decimal_places=6)
+    market_evidence = models.JSONField(default=dict)
+    authority_evidence = models.JSONField(default=dict)
+    valuation_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        constraints = [
+            models.UniqueConstraint(
+                fields=('game_instance', 'valuation_hash'),
+                name='dec_poker_market_valuation_hash_unique',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError('DEC market valuations are immutable after publication.')
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('DEC market valuations cannot be deleted.')
+
+    def __str__(self):
+        return (
+            f"DecPokerMarketValuation(game={self.game_instance_id}, "
+            f"price={self.price_evr_per_reward_asset}, executions={self.source_execution_count})"
+        )
+
+
+class DecPokerValuationBid(models.Model):
+    game_instance = models.ForeignKey(
+        DecPokerGameInstance,
+        on_delete=models.PROTECT,
+        related_name='valuation_bids',
+    )
+    trading_pair = models.ForeignKey(
+        TradingPair,
+        on_delete=models.PROTECT,
+        related_name='dec_poker_valuation_bids',
+    )
+    limit_order = models.OneToOneField(
+        LimitOrder,
+        on_delete=models.PROTECT,
+        related_name='dec_poker_valuation_bid',
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='dec_poker_valuation_bids',
+    )
+    audit_authority = models.ForeignKey(
+        DecPokerAuditAuthority,
+        on_delete=models.PROTECT,
+        related_name='valuation_bids',
+    )
+    price_evr_per_reward_asset = models.DecimalField(max_digits=30, decimal_places=8)
+    reward_asset_quantity = models.DecimalField(max_digits=30, decimal_places=8)
+    reserved_evr = models.DecimalField(max_digits=30, decimal_places=8)
+    post_only = models.BooleanField(default=True)
+    authority_evidence = models.JSONField(default=dict)
+    intent_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError('DEC valuation bids are immutable after creation.')
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('DEC valuation bids cannot be deleted.')
+
+    def __str__(self):
+        return (
+            f"DecPokerValuationBid(game={self.game_instance_id}, "
+            f"order={self.limit_order_id}, price={self.price_evr_per_reward_asset})"
+        )
+
+
+class DecPokerHand(models.Model):
+    RESULT_WIN = 'win'
+    RESULT_LOSE = 'lose'
+    RESULT_PUSH = 'push'
+    RESULT_CHOICES = [
+        (RESULT_WIN, 'Win'),
+        (RESULT_LOSE, 'Lose'),
+        (RESULT_PUSH, 'Push'),
+    ]
+
+    MESSAGE_STATUS_BROADCASTED = 'broadcasted'
+    MESSAGE_STATUS_FAILED = 'failed'
+    MESSAGE_STATUS_SKIPPED = 'skipped'
+    MESSAGE_STATUS_CHOICES = [
+        (MESSAGE_STATUS_BROADCASTED, 'Broadcasted'),
+        (MESSAGE_STATUS_FAILED, 'Failed'),
+        (MESSAGE_STATUS_SKIPPED, 'Skipped'),
+    ]
+
+    SETTLEMENT_STATUS_ACCEPTED = 'accepted'
+    SETTLEMENT_STATUS_SETTLING = 'settling'
+    SETTLEMENT_STATUS_SETTLED = 'settled'
+    SETTLEMENT_STATUS_RECONCILIATION_REQUIRED = 'reconciliation_required'
+    SETTLEMENT_STATUS_FAILED = 'failed'
+    SETTLEMENT_STATUS_CHOICES = [
+        (SETTLEMENT_STATUS_ACCEPTED, 'Accepted'),
+        (SETTLEMENT_STATUS_SETTLING, 'Settling'),
+        (SETTLEMENT_STATUS_SETTLED, 'Settled'),
+        (SETTLEMENT_STATUS_RECONCILIATION_REQUIRED, 'Reconciliation required'),
+        (SETTLEMENT_STATUS_FAILED, 'Failed'),
+    ]
+
+    game_instance = models.ForeignKey(DecPokerGameInstance, on_delete=models.CASCADE, related_name='hands')
+    player = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='dec_poker_hands')
+    payout_policy = models.ForeignKey(
+        DecPokerPayoutPolicy,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='hands',
+    )
+    payout_policy_version = models.PositiveIntegerField(default=0)
+    payout_policy_hash = models.CharField(max_length=64, blank=True, default='')
+    payout_policy_snapshot = models.JSONField(default=dict)
+    settlement_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    idempotency_key = models.CharField(max_length=64, blank=True, default='')
+    settlement_status = models.CharField(
+        max_length=32,
+        choices=SETTLEMENT_STATUS_CHOICES,
+        default=SETTLEMENT_STATUS_SETTLED,
+    )
+    settlement_error = models.TextField(blank=True, default='')
+    settled_at = models.DateTimeField(null=True, blank=True)
+    wager_evr = models.DecimalField(max_digits=20, decimal_places=8)
+    reward_amount = models.DecimalField(max_digits=30, decimal_places=8, default=0)
+    reward_asset_name = models.CharField(max_length=30, blank=True, default='')
+    result = models.CharField(max_length=10, choices=RESULT_CHOICES)
+    player_cards = models.JSONField(default=list)
+    dealer_cards = models.JSONField(default=list)
+    outcome_detail = models.JSONField(default=dict)
+    client_seed = models.CharField(max_length=128, blank=True, default='')
+    server_seed_hash = models.CharField(max_length=64, blank=True, default='')
+    server_seed_revealed = models.CharField(max_length=128, blank=True, default='')
+    fairness_nonce = models.PositiveIntegerField(default=1)
+    fairness_digest = models.CharField(max_length=64, blank=True, default='')
+
+    spend_txid = models.CharField(max_length=100, blank=True, default='')
+    reward_txid = models.CharField(max_length=100, blank=True, default='')
+    spend_message_txid = models.CharField(max_length=100, blank=True, default='')
+    reward_message_txid = models.CharField(max_length=100, blank=True, default='')
+    spend_message_status = models.CharField(max_length=16, choices=MESSAGE_STATUS_CHOICES, default=MESSAGE_STATUS_SKIPPED)
+    reward_message_status = models.CharField(max_length=16, choices=MESSAGE_STATUS_CHOICES, default=MESSAGE_STATUS_SKIPPED)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        constraints = [
+            models.UniqueConstraint(
+                fields=('game_instance', 'player', 'idempotency_key'),
+                condition=~models.Q(idempotency_key=''),
+                name='dec_poker_hand_idempotency_key_unique',
+            ),
+        ]
+
+    def __str__(self):
+        return f"DecPokerHand(game={self.game_instance_id}, player={self.player_id}, result={self.result})"
+
+
+class DecPokerPayoutLedgerEntry(models.Model):
+    EVENT_WAGER_ACCEPTED = 'wager_accepted'
+    EVENT_WAGER_SPEND_SETTLED = 'wager_spend_settled'
+    EVENT_HAND_RESOLVED = 'hand_resolved'
+    EVENT_REWARD_PAYOUT_SETTLED = 'reward_payout_settled'
+    EVENT_RECONCILIATION_REQUIRED = 'reconciliation_required'
+    EVENT_TYPE_CHOICES = [
+        (EVENT_WAGER_ACCEPTED, 'Wager accepted'),
+        (EVENT_WAGER_SPEND_SETTLED, 'Wager spend settled'),
+        (EVENT_HAND_RESOLVED, 'Hand resolved'),
+        (EVENT_REWARD_PAYOUT_SETTLED, 'Reward payout settled'),
+        (EVENT_RECONCILIATION_REQUIRED, 'Reconciliation required'),
+    ]
+
+    game_instance = models.ForeignKey(
+        DecPokerGameInstance,
+        on_delete=models.PROTECT,
+        related_name='payout_ledger_entries',
+    )
+    hand = models.ForeignKey(
+        DecPokerHand,
+        on_delete=models.PROTECT,
+        related_name='payout_ledger_entries',
+    )
+    payout_policy = models.ForeignKey(
+        DecPokerPayoutPolicy,
+        on_delete=models.PROTECT,
+        related_name='ledger_entries',
+    )
+    sequence = models.PositiveIntegerField()
+    event_type = models.CharField(max_length=40, choices=EVENT_TYPE_CHOICES)
+    correlation_id = models.UUIDField()
+    idempotency_key = models.CharField(max_length=64)
+    player_identifier = models.CharField(max_length=64)
+    currency = models.CharField(max_length=30)
+    stake_amount = models.DecimalField(max_digits=30, decimal_places=8, default=0)
+    payout_amount = models.DecimalField(max_digits=30, decimal_places=8, default=0)
+    balance_delta = models.DecimalField(max_digits=30, decimal_places=8, default=0)
+    result = models.CharField(max_length=10, blank=True, default='')
+    payout_policy_version = models.PositiveIntegerField()
+    payout_policy_hash = models.CharField(max_length=64)
+    odds_snapshot = models.JSONField(default=dict)
+    rng_evidence = models.JSONField(default=dict)
+    external_txid = models.CharField(max_length=100, blank=True, default='')
+    event_data = models.JSONField(default=dict)
+    occurred_at = models.DateTimeField()
+    previous_entry_hash = models.CharField(max_length=64, blank=True, default='')
+    entry_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('game_instance_id', 'sequence')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('game_instance', 'sequence'),
+                name='dec_poker_ledger_sequence_unique',
+            ),
+            models.UniqueConstraint(
+                fields=('hand', 'event_type'),
+                name='dec_poker_ledger_hand_event_unique',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError('DEC payout ledger entries are append-only.')
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('DEC payout ledger entries cannot be deleted.')
+
+    def __str__(self):
+        return f"DecPokerPayoutLedgerEntry(hand={self.hand_id}, event={self.event_type}, sequence={self.sequence})"

@@ -52,10 +52,6 @@ class Command(BaseCommand):
         set_active_network_mode(NETWORK_MODE)
         set_active_rpc_endpoint_mode('local')
         try:
-            chain_info = RPC.getblockchaininfo()
-            if not isinstance(chain_info, dict) or chain_info.get('chain') != 'test':
-                raise CommandError('Refusing to seed activity because RPC is not connected to testnet.')
-
             system_user = User.objects.get(username='system')
             system_wallet = Wallet(
                 system_user.user_wallet.entropy,
@@ -63,6 +59,9 @@ class Command(BaseCommand):
                 network_mode=NETWORK_MODE,
             )
             system_address = system_wallet.get_address(0)
+            chain_info = RPC.getblockchaininfo()
+            if not isinstance(chain_info, dict) or chain_info.get('chain') != 'test':
+                raise CommandError('Refusing to seed activity because RPC is not connected to testnet.')
             TrackedAsset.objects.update_or_create(
                 symbol=ASSET_NAME,
                 network_mode=NETWORK_MODE,

@@ -86,14 +86,22 @@ class RoutedRpcClientTests(TestCase):
 		self.assertEqual(rpc_client.normalize_rpc_endpoint_mode('invalid'), 'public')
 		self.assertEqual(rpc_client.normalize_rpc_endpoint_mode('local'), 'local')
 
+	def test_using_rpc_endpoint_mode_restores_the_previous_mode(self):
+		rpc_client.set_active_rpc_endpoint_mode('local')
+
+		with rpc_client.using_rpc_endpoint_mode('public') as active_mode:
+			self.assertEqual(active_mode, 'public')
+			self.assertEqual(rpc_client.get_active_rpc_endpoint_mode(), 'public')
+
+		self.assertEqual(rpc_client.get_active_rpc_endpoint_mode(), 'local')
+
 	@patch('Tome.rpc_client.RoutedEvrmoreClient._get_public_client')
 	@patch('Tome.rpc_client.RoutedEvrmoreClient._get_local_client')
-	def test_local_failure_falls_back_to_public(self, mock_local_client, mock_public_client):
+	def test_testnet_local_mode_uses_only_the_local_client(self, mock_local_client, mock_public_client):
 		local_client = MagicMock()
 		public_client = MagicMock()
 
-		local_client.getblockchaininfo.side_effect = Exception('local node unavailable')
-		public_client.getblockchaininfo.return_value = {'chain': 'test'}
+		local_client.getblockchaininfo.return_value = {'chain': 'test'}
 		mock_local_client.return_value = local_client
 		mock_public_client.return_value = public_client
 
@@ -104,24 +112,41 @@ class RoutedRpcClientTests(TestCase):
 
 		self.assertEqual(result, {'chain': 'test'})
 		local_client.getblockchaininfo.assert_called_once()
-		public_client.getblockchaininfo.assert_called_once()
+		mock_public_client.assert_not_called()
 
 	@patch('Tome.rpc_client.RoutedEvrmoreClient._get_public_client')
 	@patch('Tome.rpc_client.RoutedEvrmoreClient._get_local_client')
-	def test_public_failure_falls_back_to_local(self, mock_local_client, mock_public_client):
+	def test_public_failure_does_not_fall_back_to_local(self, mock_local_client, mock_public_client):
 		local_client = MagicMock()
 		public_client = MagicMock()
 
-		public_client.getblockchaininfo.side_effect = Exception('public endpoint timeout')
+		public_client.getblockchaininfo.side_effect = Exception('public endpoint unavailable')
+		mock_local_client.return_value = local_client
+		mock_public_client.return_value = public_client
+
+		routed_client = rpc_client.RoutedEvrmoreClient()
+		rpc_client.set_active_network_mode('testnet')
+		with self.assertRaises(Exception):
+			routed_client.getblockchaininfo()
+
+		public_client.getblockchaininfo.assert_called_once()
+		mock_local_client.assert_not_called()
+
+	@patch('Tome.rpc_client.RoutedEvrmoreClient._get_public_client')
+	@patch('Tome.rpc_client.RoutedEvrmoreClient._get_local_client')
+	def test_mainnet_local_mode_uses_only_the_local_client(self, mock_local_client, mock_public_client):
+		local_client = MagicMock()
+		public_client = MagicMock()
+
 		local_client.getblockchaininfo.return_value = {'chain': 'main'}
 		mock_local_client.return_value = local_client
 		mock_public_client.return_value = public_client
 
 		routed_client = rpc_client.RoutedEvrmoreClient()
 		rpc_client.set_active_network_mode('mainnet')
-		rpc_client.set_active_rpc_endpoint_mode('public')
+		rpc_client.set_active_rpc_endpoint_mode('local')
 		result = routed_client.getblockchaininfo()
 
 		self.assertEqual(result, {'chain': 'main'})
-		public_client.getblockchaininfo.assert_called_once()
 		local_client.getblockchaininfo.assert_called_once()
+		mock_public_client.assert_not_called()

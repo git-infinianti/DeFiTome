@@ -20,6 +20,10 @@ DEFAULT_ALLOWED_STAGES = [
     'settlement_broadcasted',
     'swap_cancelled',
     'swap_expired',
+    'game_instance_created',
+    'game_spend_recorded',
+    'game_reward_distributed',
+    'payout_policy_published',
 ]
 
 

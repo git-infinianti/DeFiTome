@@ -545,7 +545,7 @@
 
             <section class="card">
                 <h2>Message Channel Console</h2>
-                <p class="muted">Raw swap and market broadcast activity on {{ active_network_mode }}. Most recent 200 matching events.</p>
+                <p class="muted">Cross-user swap, market, and DEC broadcast activity on {{ active_network_mode }}. Most recent 200 matching events.</p>
                 <form method="get" action="{% url 'messaging_channel_management' %}">
                     <div class="row">
                         <div class="field">
@@ -563,6 +563,7 @@
                                 <option value="" {% if not event_filters.event_type %}selected{% endif %}>All events</option>
                                 <option value="swap" {% if event_filters.event_type == "swap" %}selected{% endif %}>Swap</option>
                                 <option value="market" {% if event_filters.event_type == "market" %}selected{% endif %}>Market</option>
+                                <option value="dec" {% if event_filters.event_type == "dec" %}selected{% endif %}>DEC</option>
                             </select>
                         </div>
                         <div class="field">

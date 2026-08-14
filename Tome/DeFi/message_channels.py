@@ -1,6 +1,8 @@
 import json
 from decimal import Decimal
 
+from django.db import transaction
+
 from API.message_channel_lib import (
     build_market_event_payload,
     build_swap_transfer_payload,
@@ -8,30 +10,30 @@ from API.message_channel_lib import (
     validate_console_payload,
     validate_market_event_payload,
 )
+from API.channel_console_lib import DEFAULT_ALLOWED_STAGES
 from API.models import AtomicSwapTransferMessage, DexMarketEventMessage, MessageChannelPolicy
+from API.unified_workflow_policy import (
+    UNIFIED_WORKFLOW_CHANNEL_KEY,
+    UNIFIED_WORKFLOW_POLICY_VERSION,
+)
+from DeFi.models import SwapOffer
 from Media.kubo_api import KuboAPIUploader
 from Tome.rpc_client import RPC, using_network_mode
 from Wallet.models import WalletAddress, WalletProfile
 from Wallet.rpc import create_and_send_transfer_with_message_transaction
 
 
-ATOMIC_SWAP_CHANNEL_KEY = 'atomic_swap_transfer'
-ATOMIC_SWAP_REQUIRED_STAGES = (
-    'offer_created',
-    'settlement_lock_created',
-    'settlement_build_failed',
-    'settlement_pending_reconciliation',
-    'settlement_broadcasted',
-    'swap_cancelled',
-    'swap_expired',
-)
+ATOMIC_SWAP_CHANNEL_KEY = UNIFIED_WORKFLOW_CHANNEL_KEY
+ATOMIC_SWAP_REQUIRED_STAGES = tuple(DEFAULT_ALLOWED_STAGES)
 
 
 def get_active_atomic_swap_policy(network_mode, required_stages=()):
-    required = {str(stage).strip().lower() for stage in required_stages if str(stage).strip()}
+    required = {str(stage).strip().lower() for stage in DEFAULT_ALLOWED_STAGES}
+    required.update(str(stage).strip().lower() for stage in required_stages if str(stage).strip())
     policies = MessageChannelPolicy.objects.filter(
         channel_key=ATOMIC_SWAP_CHANNEL_KEY,
         network_mode=network_mode,
+        version__gte=UNIFIED_WORKFLOW_POLICY_VERSION,
         status='active',
         chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
     ).order_by('-version')
@@ -116,6 +118,19 @@ def _broadcast_channel_message_for_active_network(message, policy, payload, file
     return message
 
 
+def _reserve_atomic_swap_event_sequence(swap_offer):
+    with transaction.atomic():
+        locked_offer = SwapOffer.objects.select_for_update().only(
+            'id',
+            'channel_event_sequence',
+        ).get(pk=swap_offer.pk)
+        sequence = int(locked_offer.channel_event_sequence or 0) + 1
+        locked_offer.channel_event_sequence = sequence
+        locked_offer.save(update_fields=['channel_event_sequence', 'updated_at'])
+    swap_offer.channel_event_sequence = sequence
+    return sequence
+
+
 def record_atomic_swap_stage_event(
     swap_offer,
     stage,
@@ -125,12 +140,14 @@ def record_atomic_swap_stage_event(
     details=None,
     should_broadcast=None,
 ):
+    aggregate_sequence = _reserve_atomic_swap_event_sequence(swap_offer)
     payload = build_swap_transfer_payload(
         swap_offer=swap_offer,
         stage=stage,
         actor_username=actor_username,
         txid=txid,
         details=details,
+        aggregate_sequence=aggregate_sequence,
     )
 
     policy = get_active_atomic_swap_policy(
@@ -176,10 +193,15 @@ def record_market_stage_event(trading_pair, stage, actor_user, order=None, detai
     policies = [
         policy
         for policy in MessageChannelPolicy.objects.filter(
+            channel_key=ATOMIC_SWAP_CHANNEL_KEY,
             network_mode=trading_pair.network_mode,
+            version__gte=UNIFIED_WORKFLOW_POLICY_VERSION,
             status='active',
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
         ).order_by('channel_key', '-version')
-        if payload['stage'] in {
+        if set(DEFAULT_ALLOWED_STAGES).issubset({
+            str(item).strip().lower() for item in (policy.allowed_stages or [])
+        }) and payload['stage'] in {
             str(item).strip().lower() for item in (policy.allowed_stages or [])
         }
     ]

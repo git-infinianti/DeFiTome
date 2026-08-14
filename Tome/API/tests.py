@@ -1,8 +1,14 @@
 from django.test import TestCase, Client
 from django.contrib.auth.models import User
+from django.db import IntegrityError, transaction
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.urls import reverse
+from django.utils import timezone
 from unittest.mock import patch
+from io import StringIO
 import json
+import uuid
 from decimal import Decimal
 
 from .models import (
@@ -10,8 +16,21 @@ from .models import (
     SolidityContract,
     ContractInteraction,
     ContractAsset,
+    ChannelConsumer,
+    ChannelEvent,
+    ChannelSubscription,
+    ChannelSubscriptionCursor,
     MessageChannelPolicy,
 )
+from API.channel_event_protocol import add_payload_checksum
+from API.channel_console_lib import DEFAULT_ALLOWED_STAGES
+from API.unified_workflow_policy import (
+    UNIFIED_WORKFLOW_CHANNEL_KEY,
+    UNIFIED_WORKFLOW_CHANNEL_TAG,
+    UNIFIED_WORKFLOW_POLICY_VERSION,
+    UNIFIED_WORKFLOW_STRICT_RULES,
+)
+from API.channel_reconciliation import ChannelHistoryUnavailable, ingest_channel_history
 from .rpc import EvrmoreRPC
 from Wallet.models import UserWallet, WalletAddress
 from API.channel_console_service import (
@@ -19,6 +38,430 @@ from API.channel_console_service import (
     create_channel_console_asset_for_user,
     set_channel_subscription,
 )
+
+
+class ChannelReconciliationModelTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='channel-observer', password='testpass123')
+        self.policy = MessageChannelPolicy.objects.create(
+            channel_key='tome0808_swapflow',
+            channel_name='TOME0808~SWAPFLOWV5',
+            network_mode='testnet',
+            version=5,
+            status='active',
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=['offer_created'],
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
+        )
+
+    def _payload(self):
+        return add_payload_checksum({
+            'event_type': 'atomic_swap_transfer',
+            'event_version': 1,
+            'event_id': str(uuid.uuid4()),
+            'created_at': timezone.now().isoformat(),
+            'network_mode': 'testnet',
+            'aggregate_type': 'atomic_swap',
+            'aggregate_id': str(uuid.uuid4()),
+            'aggregate_sequence': 1,
+            'stage': 'offer_created',
+            'details': {'offer_token': 'COLLECTIBLE#1'},
+        })
+
+    def test_verified_event_is_append_only_and_checksum_validated(self):
+        payload = self._payload()
+        event = ChannelEvent.objects.create(
+            policy=self.policy,
+            event_id=payload['event_id'],
+            event_type=payload['event_type'],
+            event_version=payload['event_version'],
+            aggregate_type=payload['aggregate_type'],
+            aggregate_id=payload['aggregate_id'],
+            aggregate_sequence=payload['aggregate_sequence'],
+            stage=payload['stage'],
+            network_mode=payload['network_mode'],
+            payload=payload,
+            payload_checksum=payload['payload_checksum'],
+            payload_ipfs_cid='QmAtomicSwapEvent',
+            channel_txid='a' * 64,
+            channel_output_index=2,
+            block_height=42,
+            block_transaction_index=1,
+            block_hash='b' * 64,
+            confirmed_at=timezone.now(),
+            raw_observation={'channel': self.policy.channel_name},
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ChannelEvent.objects.filter(pk=event.pk).update(stage='swap_cancelled')
+
+        event.refresh_from_db()
+        self.assertEqual(event.stage, 'offer_created')
+
+    def test_aggregate_sequence_is_unique_within_a_policy_and_aggregate(self):
+        payload = self._payload()
+        event_fields = {
+            'policy': self.policy,
+            'event_type': payload['event_type'],
+            'event_version': payload['event_version'],
+            'aggregate_type': payload['aggregate_type'],
+            'aggregate_id': payload['aggregate_id'],
+            'aggregate_sequence': payload['aggregate_sequence'],
+            'stage': payload['stage'],
+            'network_mode': payload['network_mode'],
+            'payload_checksum': payload['payload_checksum'],
+            'payload_ipfs_cid': 'QmAtomicSwapEvent',
+            'channel_output_index': 2,
+            'block_height': 42,
+            'block_transaction_index': 1,
+            'block_hash': 'b' * 64,
+            'confirmed_at': timezone.now(),
+            'raw_observation': {'channel': self.policy.channel_name},
+        }
+        ChannelEvent.objects.create(
+            **event_fields,
+            event_id=payload['event_id'],
+            payload=payload,
+            channel_txid='a' * 64,
+        )
+        duplicate_payload = add_payload_checksum({
+            **payload,
+            'event_id': str(uuid.uuid4()),
+        })
+        duplicate_event_fields = {
+            **event_fields,
+            'event_id': duplicate_payload['event_id'],
+            'payload': duplicate_payload,
+            'payload_checksum': duplicate_payload['payload_checksum'],
+            'channel_txid': 'c' * 64,
+            'channel_output_index': 3,
+        }
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ChannelEvent.objects.bulk_create([ChannelEvent(**duplicate_event_fields)])
+
+    def test_subscription_cursor_is_scoped_to_a_consumer_and_policy(self):
+        subscription = ChannelSubscription.objects.create(
+            user=self.user,
+            policy=self.policy,
+            role=ChannelSubscription.ROLE_OBSERVER,
+        )
+        consumer = ChannelConsumer.objects.create(
+            network_mode='testnet',
+            consumer_key='test-node',
+            display_name='Test node',
+        )
+        cursor = ChannelSubscriptionCursor.objects.create(
+            subscription=subscription,
+            consumer=consumer,
+        )
+
+        self.assertEqual(cursor.status, ChannelSubscriptionCursor.STATUS_LAGGING)
+        self.assertEqual(cursor.subscription.policy, self.policy)
+
+
+class ChannelHistoryIngestionTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='channel-ingestor', password='testpass123')
+        self.policy = MessageChannelPolicy.objects.create(
+            channel_key='tome0808_swapflow',
+            channel_name='TOME0808~SWAPFLOWV5',
+            network_mode='testnet',
+            version=5,
+            status='active',
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=['offer_created'],
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
+        )
+        self.payload = add_payload_checksum({
+            'event_type': 'atomic_swap_transfer',
+            'event_version': 1,
+            'event_id': str(uuid.uuid4()),
+            'created_at': timezone.now().isoformat(),
+            'network_mode': 'testnet',
+            'aggregate_type': 'atomic_swap',
+            'aggregate_id': str(uuid.uuid4()),
+            'aggregate_sequence': 1,
+            'stage': 'offer_created',
+            'details': {'offer_token': 'COLLECTIBLE#1'},
+        })
+        self.holder_address = 'msmLKdT7nnGGZocTVajs2W6ohjy13gxDyz'
+        self.channel_txid = 'a' * 64
+        self.issuance_txid = 'b' * 64
+        self.block_hash = 'c' * 64
+        self.mock_holders = self._start_patch(
+            'API.channel_reconciliation.evrmore_rpc.list_addresses_by_asset'
+        )
+        self.mock_utxos = self._start_patch(
+            'API.channel_reconciliation.evrmore_rpc.get_address_utxos'
+        )
+        self.mock_raw_transaction = self._start_patch(
+            'API.channel_reconciliation.evrmore_rpc.get_raw_transaction'
+        )
+        self.mock_block = self._start_patch(
+            'API.channel_reconciliation.evrmore_rpc.get_block'
+        )
+        self.mock_download_json = self._start_patch(
+            'API.channel_reconciliation.KuboAPIUploader.download_json'
+        )
+        self.mock_transaction_evidence = self._start_patch(
+            'API.channel_reconciliation.get_public_transaction_evidence'
+        )
+
+    def _start_patch(self, target):
+        patcher = patch(target)
+        self.addCleanup(patcher.stop)
+        return patcher.start()
+
+    def _configure_lineage(self, channel_txid=None, message_cid='QmAtomicSwapEvent', block_hash=None, block_height=42):
+        channel_txid = channel_txid or self.channel_txid
+        block_hash = block_hash or self.block_hash
+        transfer_transaction = {
+            'txid': channel_txid,
+            'blockhash': block_hash,
+            'height': block_height,
+            'vin': [{'txid': self.issuance_txid, 'vout': 0}],
+            'vout': [{
+                'n': 2,
+                'scriptPubKey': {
+                    'type': 'transfer_asset',
+                    'asset': {
+                        'name': self.policy.channel_name,
+                        'amount': 1,
+                        'message': message_cid,
+                    },
+                },
+            }],
+        }
+        issuance_transaction = {
+            'txid': self.issuance_txid,
+            'vin': [],
+            'vout': [{
+                'n': 0,
+                'scriptPubKey': {
+                    'type': 'new_asset',
+                    'asset': {'name': self.policy.channel_name, 'amount': 1},
+                },
+            }],
+        }
+        transactions = {
+            channel_txid: transfer_transaction,
+            self.issuance_txid: issuance_transaction,
+        }
+        self.mock_holders.return_value = {self.holder_address: '1.00000000'}
+        self.mock_utxos.return_value = [{
+            'assetName': self.policy.channel_name,
+            'txid': channel_txid,
+            'outputIndex': 2,
+        }]
+        self.mock_raw_transaction.side_effect = lambda transaction_id, verbose: transactions[transaction_id]
+        self.mock_block.return_value = {
+            'hash': block_hash,
+            'height': block_height,
+            'tx': [channel_txid],
+        }
+
+    def test_ingestion_persists_only_confirmed_canonical_observations(self):
+        self._configure_lineage()
+        self.mock_download_json.return_value = self.payload
+        self.mock_transaction_evidence.return_value = {
+            'transaction_id': self.channel_txid,
+            'confirmations': 1,
+            'block_hash': self.block_hash,
+            'block_time': 1_700_000_000,
+            'transaction_time': 1_700_000_000,
+        }
+
+        report = ingest_channel_history(self.policy)
+
+        self.assertEqual(report['ingested'], 1)
+        event = ChannelEvent.objects.get()
+        self.assertEqual(event.event_id, self.payload['event_id'])
+        self.assertEqual(event.block_transaction_index, 0)
+        self.assertEqual(event.payload_checksum, self.payload['payload_checksum'])
+        self.mock_utxos.assert_called_once_with([self.holder_address], asset_name=self.policy.channel_name)
+
+    def test_ingestion_rejects_ambiguous_channel_holders(self):
+        self.mock_holders.return_value = {
+            self.holder_address: 1,
+            'mp2BoHfEPNfwiWFnuqQse6i9v9srYtdYFv': 1,
+        }
+
+        with self.assertRaisesMessage(ChannelHistoryUnavailable, 'exactly one holder'):
+            ingest_channel_history(self.policy)
+
+        self.mock_utxos.assert_not_called()
+        issue = self.policy.reconciliation_issues.get(code='invalid_channel_observation')
+        self.assertEqual(issue.severity, 'critical')
+
+    def test_ingestion_records_an_issue_for_missing_block_transaction_coordinate(self):
+        self._configure_lineage()
+        self.mock_block.return_value['tx'] = []
+
+        with self.assertRaisesMessage(ChannelHistoryUnavailable, 'does not contain the channel transaction exactly once'):
+            ingest_channel_history(self.policy)
+
+        issue = self.policy.reconciliation_issues.get(code='invalid_channel_observation')
+        self.assertEqual(issue.severity, 'critical')
+        self.assertIn('does not contain the channel transaction', issue.detail['error'])
+
+    def test_ingestion_rejects_an_unmessaged_channel_transfer(self):
+        self._configure_lineage(message_cid='')
+
+        with self.assertRaisesMessage(ChannelHistoryUnavailable, 'missing its IPFS message CID'):
+            ingest_channel_history(self.policy)
+
+        issue = self.policy.reconciliation_issues.get(code='invalid_channel_observation')
+        self.assertEqual(issue.severity, 'critical')
+
+    def test_ingestion_records_mismatched_public_transaction_evidence(self):
+        self._configure_lineage()
+        self.mock_download_json.return_value = self.payload
+        self.mock_transaction_evidence.return_value = {'block_hash': 'd' * 64}
+
+        report = ingest_channel_history(self.policy)
+
+        self.assertEqual(report['invalid'], 1)
+        self.assertFalse(ChannelEvent.objects.exists())
+        issue = self.policy.reconciliation_issues.get(code='invalid_channel_observation')
+        self.assertEqual(issue.severity, 'critical')
+        self.assertIn('does not match', issue.detail['error'])
+
+    def test_ingestion_records_a_checksum_mismatch(self):
+        self._configure_lineage()
+        self.mock_download_json.return_value = {**self.payload, 'payload_checksum': '0' * 64}
+
+        report = ingest_channel_history(self.policy)
+
+        self.assertEqual(report['invalid'], 1)
+        self.assertFalse(ChannelEvent.objects.exists())
+        self.mock_transaction_evidence.assert_not_called()
+        issue = self.policy.reconciliation_issues.get(code='invalid_channel_observation')
+        self.assertEqual(issue.severity, 'critical')
+        self.assertIn('checksum', issue.detail['error'])
+
+    def test_ingestion_records_conflicting_reuse_of_an_event_id(self):
+        self._configure_lineage()
+        self.mock_download_json.return_value = self.payload
+        self.mock_transaction_evidence.return_value = {'block_hash': self.block_hash}
+        self.assertEqual(ingest_channel_history(self.policy)['ingested'], 1)
+
+        conflicting_txid = 'd' * 64
+        conflicting_block_hash = 'e' * 64
+        self._configure_lineage(
+            channel_txid=conflicting_txid,
+            message_cid='QmConflictingEvent',
+            block_hash=conflicting_block_hash,
+            block_height=43,
+        )
+        self.mock_transaction_evidence.return_value = {'block_hash': conflicting_block_hash}
+
+        report = ingest_channel_history(self.policy)
+
+        self.assertEqual(report['invalid'], 1)
+        self.assertEqual(ChannelEvent.objects.count(), 1)
+        issue = self.policy.reconciliation_issues.get(code='duplicate_event_id_conflict')
+        self.assertEqual(issue.severity, 'critical')
+        self.assertEqual(issue.detail['existing_txid'], self.channel_txid)
+        self.assertEqual(issue.detail['observed_txid'], conflicting_txid)
+
+
+class ReconcileChannelCommandTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='command-observer', password='testpass123')
+        self.policy = MessageChannelPolicy.objects.create(
+            channel_key='tome0808_swapflow',
+            channel_name='TOME0808~SWAPFLOWV5',
+            network_mode='testnet',
+            version=5,
+            status='active',
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=['offer_created'],
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
+        )
+
+    @patch('API.management.commands.reconcile_channel.reconcile_atomic_swap_subscription')
+    @patch('API.management.commands.reconcile_channel.ingest_channel_history')
+    def test_command_creates_an_observer_subscription_and_reconciles_it(
+        self,
+        mock_ingest,
+        mock_reconcile,
+    ):
+        mock_ingest.return_value = {'ingested': 0, 'invalid': 0}
+        mock_reconcile.return_value = {'processed': 0, 'blocked': 0}
+        output = StringIO()
+
+        call_command(
+            'reconcile_channel',
+            '--channel', self.policy.channel_key,
+            '--network', 'testnet',
+            '--user', self.user.username,
+            stdout=output,
+        )
+
+        subscription = ChannelSubscription.objects.get(user=self.user, policy=self.policy)
+        consumer = ChannelConsumer.objects.get(network_mode='testnet', consumer_key='server')
+        mock_ingest.assert_called_once_with(self.policy)
+        mock_reconcile.assert_called_once_with(subscription, consumer)
+        self.assertIn('"channel_key": "tome0808_swapflow"', output.getvalue())
+
+    @patch('API.management.commands.reconcile_channel.reconcile_atomic_swap_subscription')
+    @patch('API.management.commands.reconcile_channel.ingest_channel_history')
+    def test_ingest_only_does_not_create_a_consumer_or_subscription(self, mock_ingest, mock_reconcile):
+        mock_ingest.return_value = {'ingested': 1, 'invalid': 0}
+        output = StringIO()
+
+        call_command(
+            'reconcile_channel',
+            '--channel', self.policy.channel_key,
+            '--network', 'testnet',
+            '--ingest-only',
+            stdout=output,
+        )
+
+        self.assertFalse(ChannelConsumer.objects.exists())
+        self.assertFalse(ChannelSubscription.objects.exists())
+        mock_reconcile.assert_not_called()
+        self.assertIn('"ingest_only": true', output.getvalue())
+
+    @patch(
+        'API.management.commands.reconcile_channel.ingest_channel_history',
+        side_effect=ChannelHistoryUnavailable('Channel history is unavailable.'),
+    )
+    def test_unavailable_history_fails_before_creating_reconciliation_state(self, mock_ingest):
+        with self.assertRaises(CommandError):
+            call_command(
+                'reconcile_channel',
+                '--channel', self.policy.channel_key,
+                '--network', 'testnet',
+                '--user', self.user.username,
+            )
+
+        mock_ingest.assert_called_once_with(self.policy)
+        self.assertFalse(ChannelConsumer.objects.exists())
+        self.assertFalse(ChannelSubscription.objects.exists())
+
+    @patch('API.management.commands.reconcile_channel.reconcile_atomic_swap_subscription')
+    @patch('API.management.commands.reconcile_channel.ingest_channel_history')
+    def test_invalid_ingestion_prevents_projection_reconciliation(self, mock_ingest, mock_reconcile):
+        mock_ingest.return_value = {'ingested': 0, 'invalid': 1}
+
+        with self.assertRaisesMessage(CommandError, 'no projections were reconciled'):
+            call_command(
+                'reconcile_channel',
+                '--channel', self.policy.channel_key,
+                '--network', 'testnet',
+                '--user', self.user.username,
+            )
+
+        mock_reconcile.assert_not_called()
+        self.assertFalse(ChannelConsumer.objects.exists())
+        self.assertFalse(ChannelSubscription.objects.exists())
 
 
 class NFTMintEndpointTestCase(TestCase):
@@ -1070,6 +1513,243 @@ class ChannelConsoleServiceTestCase(TestCase):
             wif_keys=['L1one'],
             owner_change_address='EAddrOne',
         )
+
+    @patch('API.channel_console_service.create_and_send_issue_asset_transaction', return_value={'txid': 'v5-issue-txid'})
+    @patch('API.channel_console_service.KuboAPIUploader.upload_bytes')
+    @patch('API.channel_console_service.evrmore_rpc.list_asset_balances_by_address', return_value={'TOME0808!': Decimal('1')})
+    def test_unified_v5_issuance_keeps_v4_active_until_chain_metadata_is_verified(
+        self,
+        _mock_balances,
+        mock_upload_bytes,
+        mock_issue_asset,
+    ):
+        class UploadResult:
+            cid = 'QmUnifiedV5Metadata'
+
+        v4 = MessageChannelPolicy.objects.create(
+            channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+            channel_name='TOME0808~SWAPFLOWV4',
+            network_mode='testnet',
+            version=4,
+            status='active',
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=list(DEFAULT_ALLOWED_STAGES),
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
+        )
+        mock_upload_bytes.return_value = UploadResult()
+
+        result = create_channel_console_asset_for_user(self.user, {
+            'admin_asset': 'TOME0808!',
+            'channel_tag': UNIFIED_WORKFLOW_CHANNEL_TAG,
+            'channel_key': UNIFIED_WORKFLOW_CHANNEL_KEY,
+            'channel_version': UNIFIED_WORKFLOW_POLICY_VERSION,
+            'network_mode': 'testnet',
+            'metadata': {'strict_rules': {'allow_unregistered_keys': True}},
+        })
+
+        v4.refresh_from_db()
+        v5 = MessageChannelPolicy.objects.get(
+            channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+            network_mode='testnet',
+            version=UNIFIED_WORKFLOW_POLICY_VERSION,
+        )
+        metadata = json.loads(mock_upload_bytes.call_args.args[0].decode('utf-8'))
+
+        self.assertEqual(result['channel_asset_name'], 'TOME0808~SWAPFLOWV5')
+        self.assertEqual(v4.status, 'active')
+        self.assertEqual(v5.status, 'draft')
+        self.assertEqual(v5.chain_metadata_status, MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING)
+        self.assertEqual(v5.strict_rules['reconciliation_source'], 'channel_asset_lineage')
+        self.assertEqual(metadata['allowed_stages'], DEFAULT_ALLOWED_STAGES)
+        self.assertEqual(metadata['strict_rules']['allow_unregistered_keys'], False)
+        mock_issue_asset.assert_called_once_with(
+            from_address='EAddrOne',
+            issuer_address='EAddrOne',
+            asset_name='TOME0808~SWAPFLOWV5',
+            asset_quantity=Decimal('1'),
+            units=0,
+            reissuable=False,
+            has_ipfs=True,
+            ipfs_hash='QmUnifiedV5Metadata',
+            wif_keys=['L1one'],
+            owner_change_address='EAddrOne',
+        )
+
+    @patch('API.channel_console_service.create_and_send_issue_asset_transaction')
+    @patch('API.channel_console_service.KuboAPIUploader.download_json')
+    @patch('API.channel_console_service.evrmore_rpc.get_asset_data', return_value={'ipfs_hash': 'QmUnifiedV5Metadata'})
+    @patch('API.channel_console_service.evrmore_rpc.list_asset_balances_by_address', return_value={'TOME0808!': Decimal('1')})
+    def test_reusing_unified_v5_draft_preserves_issuance_transaction_id(
+        self,
+        _mock_balances,
+        _mock_asset_data,
+        mock_download_json,
+        mock_issue_asset,
+    ):
+        MessageChannelPolicy.objects.create(
+            channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+            channel_name='TOME0808~SWAPFLOWV5',
+            network_mode='testnet',
+            version=UNIFIED_WORKFLOW_POLICY_VERSION,
+            status='draft',
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=list(DEFAULT_ALLOWED_STAGES),
+            strict_rules=dict(UNIFIED_WORKFLOW_STRICT_RULES),
+            metadata_ipfs_cid='QmUnifiedV5Metadata',
+            issuance_txid='v5-issue-txid',
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING,
+        )
+        mock_download_json.return_value = {
+            'schema': 'defitome.messaging-channel-console',
+            'version': 1,
+            'asset_name': 'TOME0808~SWAPFLOWV5',
+            'channel_key': UNIFIED_WORKFLOW_CHANNEL_KEY,
+            'channel_name': 'DeFiTome Unified v5 Console',
+            'allowed_stages': list(DEFAULT_ALLOWED_STAGES),
+            'strict_rules': dict(UNIFIED_WORKFLOW_STRICT_RULES),
+            'console_type': 'defitome_workflow_event',
+        }
+
+        result = create_channel_console_asset_for_user(self.user, {
+            'admin_asset': 'TOME0808!',
+            'channel_tag': UNIFIED_WORKFLOW_CHANNEL_TAG,
+            'channel_key': UNIFIED_WORKFLOW_CHANNEL_KEY,
+            'channel_version': UNIFIED_WORKFLOW_POLICY_VERSION,
+            'network_mode': 'testnet',
+        })
+
+        policy = MessageChannelPolicy.objects.get(
+            channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+            network_mode='testnet',
+            version=UNIFIED_WORKFLOW_POLICY_VERSION,
+        )
+        self.assertEqual(policy.issuance_txid, 'v5-issue-txid')
+        self.assertEqual(result['txid'], 'v5-issue-txid')
+        mock_issue_asset.assert_not_called()
+
+    @patch('API.channel_console_service.KuboAPIUploader.download_json')
+    @patch('API.channel_console_service.evrmore_rpc.get_asset_data', return_value={'ipfs_hash': 'QmUnifiedV5Metadata'})
+    def test_bootstrap_promotes_only_verified_unified_v5_policy(
+        self,
+        _mock_asset_data,
+        mock_download_json,
+    ):
+        v4 = MessageChannelPolicy.objects.create(
+            channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+            channel_name='TOME0808~SWAPFLOWV4',
+            network_mode='testnet',
+            version=4,
+            status='active',
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=list(DEFAULT_ALLOWED_STAGES),
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
+        )
+        mock_download_json.return_value = {
+            'schema': 'defitome.messaging-channel-console',
+            'version': 1,
+            'asset_name': 'TOME0808~SWAPFLOWV5',
+            'channel_key': UNIFIED_WORKFLOW_CHANNEL_KEY,
+            'channel_name': 'DeFiTome Unified v5 Console',
+            'allowed_stages': list(DEFAULT_ALLOWED_STAGES),
+            'strict_rules': dict(UNIFIED_WORKFLOW_STRICT_RULES),
+            'console_type': 'defitome_workflow_event',
+        }
+
+        call_command(
+            'bootstrap_message_channels',
+            channel_name='TOME0808~SWAPFLOWV5',
+            channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+            policy_version=UNIFIED_WORKFLOW_POLICY_VERSION,
+            network_mode='testnet',
+            stdout=StringIO(),
+        )
+
+        v4.refresh_from_db()
+        v5 = MessageChannelPolicy.objects.get(
+            channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+            network_mode='testnet',
+            version=UNIFIED_WORKFLOW_POLICY_VERSION,
+        )
+        self.assertEqual(v4.status, 'deprecated')
+        self.assertEqual(v5.status, 'active')
+        self.assertEqual(v5.chain_metadata_status, MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED)
+        self.assertEqual(v5.strict_rules, dict(UNIFIED_WORKFLOW_STRICT_RULES))
+
+    def test_bootstrap_rejects_auto_broadcast_for_unified_v5(self):
+        with self.assertRaisesMessage(CommandError, 'Unified workflow v5 requires auto_broadcast to remain false'):
+            call_command(
+                'bootstrap_message_channels',
+                channel_name='TOME0808~SWAPFLOWV5',
+                channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+                policy_version=UNIFIED_WORKFLOW_POLICY_VERSION,
+                network_mode='testnet',
+                auto_broadcast=True,
+                stdout=StringIO(),
+            )
+
+    @patch('API.channel_console_service.KuboAPIUploader.download_json')
+    @patch('API.channel_console_service.evrmore_rpc.get_asset_data')
+    @patch('API.channel_console_service.evrmore_rpc.list_assets', return_value=[])
+    def test_verified_unified_v5_scan_promotes_v5_and_deprecates_v4(
+        self,
+        _mock_list_assets,
+        mock_get_asset_data,
+        mock_download_json,
+    ):
+        v4 = MessageChannelPolicy.objects.create(
+            channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+            channel_name='TOME0808~SWAPFLOWV4',
+            network_mode='testnet',
+            version=4,
+            status='active',
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=list(DEFAULT_ALLOWED_STAGES),
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
+        )
+        v5 = MessageChannelPolicy.objects.create(
+            channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+            channel_name='TOME0808~SWAPFLOWV5',
+            network_mode='testnet',
+            version=UNIFIED_WORKFLOW_POLICY_VERSION,
+            status='draft',
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=list(DEFAULT_ALLOWED_STAGES),
+            strict_rules=dict(UNIFIED_WORKFLOW_STRICT_RULES),
+            metadata_ipfs_cid='QmUnifiedV5Metadata',
+            issuance_txid='a' * 64,
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING,
+        )
+        mock_get_asset_data.side_effect = lambda asset_name: (
+            {'ipfs_hash': 'QmUnifiedV5Metadata'}
+            if asset_name == 'TOME0808~SWAPFLOWV5'
+            else {}
+        )
+        mock_download_json.return_value = {
+            'schema': 'defitome.messaging-channel-console',
+            'version': 1,
+            'asset_name': 'TOME0808~SWAPFLOWV5',
+            'channel_key': UNIFIED_WORKFLOW_CHANNEL_KEY,
+            'channel_name': 'DeFiTome Unified v5 Console',
+            'description': 'Unified v5 channel',
+            'allowed_stages': list(DEFAULT_ALLOWED_STAGES),
+            'strict_rules': dict(UNIFIED_WORKFLOW_STRICT_RULES),
+            'console_type': 'defitome_workflow_event',
+        }
+
+        from API.channel_console_service import scan_channel_console_assets
+
+        scan_channel_console_assets(network_mode='testnet')
+
+        v4.refresh_from_db()
+        v5.refresh_from_db()
+        self.assertEqual(v4.status, 'deprecated')
+        self.assertEqual(v5.status, 'active')
+        self.assertEqual(v5.chain_metadata_status, MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED)
 
     @patch('API.channel_console_service.create_and_send_issue_asset_transaction', return_value={'txid': 'txid-1'})
     @patch('API.channel_console_service.KuboAPIUploader.upload_bytes')

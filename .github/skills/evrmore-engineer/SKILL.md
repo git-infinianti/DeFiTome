@@ -91,6 +91,7 @@ Important:
   - `getbestblockhash`
   - `getmempoolinfo`
 - Confirm the chain (`main` or `test`) matches requested scope.
+- In DeFiTome, runtime routing uses only `public` and `local` modes. For live validation, invoke the selected public `/rpc` endpoint through the canonical `PublicRpcClient` directly; do not add or depend on a third runtime mode.
 - Retrieve command discovery via `help` when uncertain about method names.
 - Prefer script-based checks for repeatability:
   - `python .github/skills/evrmore-engineer/scripts/rpc_health_check.py --network both`

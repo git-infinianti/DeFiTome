@@ -1,6 +1,7 @@
 from django.urls import path
 from django.views.generic import RedirectView
 from . import views
+from . import dec_views
 
 urlpatterns = [
     # Legacy listing URLs retained as compatibility redirects.
@@ -16,4 +17,8 @@ urlpatterns = [
     path('dex/cancel-order/<int:order_id>/', views.cancel_order),
     path('dex/cancel-stop-loss/<int:order_id>/', views.cancel_stop_loss),
     path('dex/my-orders/', RedirectView.as_view(pattern_name='my_orders', permanent=True)),
+    path('dec/', dec_views.dec_poker_lobby, name='dec_poker_lobby'),
+    path('dec/admin/', dec_views.dec_poker_admin, name='dec_poker_admin'),
+    path('dec/<int:instance_id>/', dec_views.dec_poker_instance, name='dec_poker_instance'),
+    path('dec/verify/<int:hand_id>/', dec_views.dec_poker_hand_verify, name='dec_poker_hand_verify'),
 ]

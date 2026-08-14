@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 import secrets
 import hashlib
 import json
@@ -326,3 +327,293 @@ class DexMarketEventMessage(models.Model):
 
     def __str__(self):
         return f"DexMarketEventMessage(pair={self.trading_pair_id}, stage={self.stage}, status={self.status})"
+
+
+class ChannelConsumer(models.Model):
+    """A node or deployment that independently consumes verified channel events."""
+
+    NETWORK_MODE_CHOICES = MessageChannelPolicy.NETWORK_MODE_CHOICES
+
+    network_mode = models.CharField(max_length=10, choices=NETWORK_MODE_CHOICES, db_index=True)
+    consumer_key = models.CharField(max_length=128)
+    display_name = models.CharField(max_length=120)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('network_mode', 'consumer_key')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('network_mode', 'consumer_key'),
+                name='channel_consumer_network_key_unique',
+            ),
+        ]
+
+    def __str__(self):
+        return f"ChannelConsumer(network={self.network_mode}, key={self.consumer_key})"
+
+
+class ChannelSubscription(models.Model):
+    """A user's opt-in to observe a verified message-channel policy."""
+
+    ROLE_OBSERVER = 'observer'
+    ROLE_PARTICIPANT = 'participant'
+    ROLE_MANAGER = 'manager'
+    ROLE_CHOICES = [
+        (ROLE_OBSERVER, 'Observer'),
+        (ROLE_PARTICIPANT, 'Participant'),
+        (ROLE_MANAGER, 'Manager'),
+    ]
+
+    STATUS_ACTIVE = 'active'
+    STATUS_PAUSED = 'paused'
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, 'Active'),
+        (STATUS_PAUSED, 'Paused'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='channel_subscriptions')
+    policy = models.ForeignKey(
+        MessageChannelPolicy,
+        on_delete=models.PROTECT,
+        related_name='subscriptions',
+    )
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES, default=ROLE_OBSERVER)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('policy__channel_key', 'user__username')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('user', 'policy'),
+                name='channel_subscription_user_policy_unique',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=('policy', 'status'), name='API_channe_policy__f6d518_idx'),
+            models.Index(fields=('user', 'status'), name='API_channe_user_id_c1e1b1_idx'),
+        ]
+
+    def __str__(self):
+        return f"ChannelSubscription(user={self.user_id}, policy={self.policy_id}, status={self.status})"
+
+
+class ChannelEvent(models.Model):
+    """An immutable, validated observation of a confirmed channel event."""
+
+    VERIFICATION_VERIFIED = 'verified'
+    VERIFICATION_INVALID = 'invalid'
+    VERIFICATION_CHOICES = [
+        (VERIFICATION_VERIFIED, 'Verified'),
+        (VERIFICATION_INVALID, 'Invalid'),
+    ]
+
+    policy = models.ForeignKey(
+        MessageChannelPolicy,
+        on_delete=models.PROTECT,
+        related_name='channel_events',
+    )
+    event_id = models.CharField(max_length=128)
+    event_type = models.CharField(max_length=80)
+    event_version = models.PositiveSmallIntegerField()
+    aggregate_type = models.CharField(max_length=80)
+    aggregate_id = models.CharField(max_length=128)
+    aggregate_sequence = models.PositiveIntegerField()
+    stage = models.CharField(max_length=64)
+    network_mode = models.CharField(max_length=10, choices=MessageChannelPolicy.NETWORK_MODE_CHOICES)
+    payload = models.JSONField(default=dict)
+    payload_checksum = models.CharField(max_length=64)
+    payload_ipfs_cid = models.CharField(max_length=255)
+    channel_txid = models.CharField(max_length=100)
+    channel_output_index = models.PositiveIntegerField()
+    block_height = models.PositiveIntegerField()
+    block_transaction_index = models.PositiveIntegerField()
+    block_hash = models.CharField(max_length=100)
+    confirmed_at = models.DateTimeField()
+    verification_status = models.CharField(
+        max_length=16,
+        choices=VERIFICATION_CHOICES,
+        default=VERIFICATION_VERIFIED,
+    )
+    verification_error = models.TextField(blank=True)
+    raw_observation = models.JSONField(default=dict)
+    observed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('block_height', 'block_transaction_index', 'channel_output_index')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('policy', 'event_id'),
+                name='channel_event_policy_event_id_unique',
+            ),
+            models.UniqueConstraint(
+                fields=('policy', 'channel_txid', 'channel_output_index'),
+                name='channel_event_policy_tx_output_unique',
+            ),
+            models.UniqueConstraint(
+                fields=('policy', 'aggregate_type', 'aggregate_id', 'aggregate_sequence'),
+                name='channel_event_policy_aggregate_sequence_unique',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=('policy', 'block_height', 'block_transaction_index'), name='API_channe_policy__8de4d7_idx'),
+            models.Index(fields=('aggregate_type', 'aggregate_id', 'aggregate_sequence'), name='API_channe_aggreg_127d41_idx'),
+            models.Index(fields=('verification_status', 'network_mode'), name='API_channe_verific_a5d2f1_idx'),
+        ]
+
+    def clean(self):
+        from API.channel_event_protocol import event_payload_checksum, validate_channel_event_payload
+
+        validate_channel_event_payload(self.payload, self.policy.allowed_stages)
+        if self.network_mode != self.policy.network_mode:
+            raise ValidationError('Channel event network must match its policy network.')
+        if self.event_id != str(self.payload.get('event_id') or ''):
+            raise ValidationError('Channel event id must match the canonical payload.')
+        if self.payload_checksum != event_payload_checksum(self.payload):
+            raise ValidationError('Channel event payload checksum does not match canonical content.')
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError('Channel events are immutable; record a reconciliation issue instead.')
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"ChannelEvent(policy={self.policy_id}, event={self.event_id}, stage={self.stage})"
+
+
+class ChannelEventApplication(models.Model):
+    """Idempotent projection result for a verified channel event."""
+
+    STATUS_APPLIED = 'applied'
+    STATUS_ALREADY_APPLIED = 'already_applied'
+    STATUS_BLOCKED = 'blocked'
+    STATUS_CHOICES = [
+        (STATUS_APPLIED, 'Applied'),
+        (STATUS_ALREADY_APPLIED, 'Already applied'),
+        (STATUS_BLOCKED, 'Blocked'),
+    ]
+
+    event = models.ForeignKey(ChannelEvent, on_delete=models.PROTECT, related_name='applications')
+    projection_type = models.CharField(max_length=80)
+    projection_key = models.CharField(max_length=128)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    result = models.JSONField(default=dict)
+    error_message = models.TextField(blank=True)
+    applied_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('event__block_height', 'event__block_transaction_index', 'event__channel_output_index')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('event', 'projection_type', 'projection_key'),
+                name='channel_event_application_unique',
+            ),
+        ]
+
+    def __str__(self):
+        return f"ChannelEventApplication(event={self.event_id}, status={self.status})"
+
+
+class ChannelSubscriptionCursor(models.Model):
+    """A consumer's durable position for a user's channel subscription."""
+
+    STATUS_SYNCED = 'synced'
+    STATUS_LAGGING = 'lagging'
+    STATUS_ERROR = 'error'
+    STATUS_CHOICES = [
+        (STATUS_SYNCED, 'Synced'),
+        (STATUS_LAGGING, 'Lagging'),
+        (STATUS_ERROR, 'Error'),
+    ]
+
+    subscription = models.ForeignKey(
+        ChannelSubscription,
+        on_delete=models.CASCADE,
+        related_name='cursors',
+    )
+    consumer = models.ForeignKey(ChannelConsumer, on_delete=models.PROTECT, related_name='cursors')
+    last_event = models.ForeignKey(
+        ChannelEvent,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+    last_seen_txid = models.CharField(max_length=100, blank=True)
+    last_seen_height = models.PositiveIntegerField(null=True, blank=True)
+    last_seen_transaction_index = models.PositiveIntegerField(null=True, blank=True)
+    last_seen_output_index = models.PositiveIntegerField(null=True, blank=True)
+    last_seen_event_id = models.CharField(max_length=128, blank=True)
+    last_reconciled_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_LAGGING)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('subscription_id', 'consumer_id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('subscription', 'consumer'),
+                name='channel_subscription_cursor_unique',
+            ),
+        ]
+
+    def __str__(self):
+        return f"ChannelSubscriptionCursor(subscription={self.subscription_id}, consumer={self.consumer_id})"
+
+
+class ChannelReconciliationIssue(models.Model):
+    """A durable, reviewable failure to reconcile channel evidence and a projection."""
+
+    SEVERITY_WARNING = 'warning'
+    SEVERITY_ERROR = 'error'
+    SEVERITY_CRITICAL = 'critical'
+    SEVERITY_CHOICES = [
+        (SEVERITY_WARNING, 'Warning'),
+        (SEVERITY_ERROR, 'Error'),
+        (SEVERITY_CRITICAL, 'Critical'),
+    ]
+
+    STATUS_OPEN = 'open'
+    STATUS_RESOLVED = 'resolved'
+    STATUS_CHOICES = [
+        (STATUS_OPEN, 'Open'),
+        (STATUS_RESOLVED, 'Resolved'),
+    ]
+
+    policy = models.ForeignKey(
+        MessageChannelPolicy,
+        on_delete=models.PROTECT,
+        related_name='reconciliation_issues',
+    )
+    event = models.ForeignKey(
+        ChannelEvent,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='reconciliation_issues',
+    )
+    aggregate_type = models.CharField(max_length=80, blank=True)
+    aggregate_id = models.CharField(max_length=128, blank=True)
+    code = models.CharField(max_length=80)
+    severity = models.CharField(max_length=16, choices=SEVERITY_CHOICES, default=SEVERITY_ERROR)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_OPEN)
+    detail = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ('status', '-created_at')
+        indexes = [
+            models.Index(fields=('policy', 'status', '-created_at'), name='API_channe_policy__4c7c94_idx'),
+            models.Index(fields=('aggregate_type', 'aggregate_id', 'status'), name='API_channe_aggreg_b7e549_idx'),
+        ]
+
+    def __str__(self):
+        return f"ChannelReconciliationIssue(policy={self.policy_id}, code={self.code}, status={self.status})"

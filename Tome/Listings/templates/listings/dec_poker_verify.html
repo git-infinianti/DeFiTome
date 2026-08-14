@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify DEC Hand</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: "Trebuchet MS", "Avenir Next", sans-serif;
+            background: linear-gradient(160deg, #113c32, #215845 50%, #2c6d56);
+            color: #f6f2e9;
+            min-height: 100vh;
+        }
+        .wrap {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 1.5rem;
+        }
+        .panel {
+            background: rgba(0, 0, 0, 0.28);
+            border: 1px solid rgba(255,255,255,0.14);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .ok { color: #9df0b5; }
+        .bad { color: #ffb3b3; }
+        code {
+            display: block;
+            white-space: pre-wrap;
+            word-break: break-all;
+            background: rgba(255,255,255,0.08);
+            padding: 0.7rem;
+            border-radius: 8px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            color: #1f1f1f;
+            background: rgba(255,255,255,0.94);
+        }
+        th, td {
+            padding: 0.45rem;
+            text-align: left;
+            vertical-align: top;
+            border-bottom: 1px solid rgba(0,0,0,0.12);
+            word-break: break-word;
+        }
+        .table-wrap { overflow-x: auto; }
+        a { color: #cce6ff; }
+    </style>
+    {% include "listings/dec_theme.html" %}
+</head>
+<body class="theme-{{ user_theme }}">
+<div class="wrap">
+    <header>
+        <div class="header-left"><a class="logo" href="{% url 'markets' %}">DeFi Tome</a></div>
+        <div class="header-right">
+            <nav>
+                <a href="{% url 'markets' %}">Markets</a>
+                <a href="{% url 'dec_poker_lobby' %}">Casino</a>
+                <a href="{% url 'my_orders' %}">Orders</a>
+                <a href="{% url 'portfolio' %}">Portfolio</a>
+            </nav>
+        </div>
+    </header>
+    <section class="page-title">
+        <div class="badge">Public Testnet</div>
+        <h1>Verify Hand #{{ hand.id }}</h1>
+        <p>Validation status: <strong class="{% if verification.is_valid %}ok{% else %}bad{% endif %}">{% if verification.is_valid %}valid{% else %}invalid{% endif %}</strong></p>
+        <div class="page-actions"><a class="btn btn-secondary" href="{% url 'dec_poker_instance' hand.game_instance.id %}">Back to Game</a></div>
+    </section>
+
+    <div class="panel">
+        <h2>Checks</h2>
+        <div>Commitment hash matches revealed server seed: <strong class="{% if verification.commitment_match %}ok{% else %}bad{% endif %}">{{ verification.commitment_match }}</strong></div>
+        <div>Player cards match recomputation: <strong class="{% if verification.player_cards_match %}ok{% else %}bad{% endif %}">{{ verification.player_cards_match }}</strong></div>
+        <div>Dealer cards match recomputation: <strong class="{% if verification.dealer_cards_match %}ok{% else %}bad{% endif %}">{{ verification.dealer_cards_match }}</strong></div>
+        <div>Result matches recomputation: <strong class="{% if verification.result_match %}ok{% else %}bad{% endif %}">{{ verification.result_match }}</strong></div>
+        <div>Fairness digest matches recomputation: <strong class="{% if verification.digest_match %}ok{% else %}bad{% endif %}">{{ verification.digest_match }}</strong></div>
+    </div>
+
+    <div class="panel">
+        <h2>Seeds</h2>
+        <div>Server seed hash</div>
+        <code>{{ hand.server_seed_hash }}</code>
+        <div>Revealed server seed</div>
+        <code>{{ hand.server_seed_revealed }}</code>
+        <div>Client seed</div>
+        <code>{{ hand.client_seed }}</code>
+        <div>Nonce</div>
+        <code>{{ hand.fairness_nonce }}</code>
+        <div>Stored fairness digest</div>
+        <code>{{ hand.fairness_digest }}</code>
+    </div>
+
+    <div class="panel">
+        <h2>Recomputed Outcome</h2>
+        <code>{{ verification.recomputed }}</code>
+    </div>
+
+    <div class="panel">
+        <h2>Applied Payout Policy</h2>
+        <div>Policy version: {{ hand.payout_policy_version }}</div>
+        <div>Settlement status: {{ hand.settlement_status|upper }}</div>
+        <div>Policy hash</div>
+        <code>{{ hand.payout_policy_hash }}</code>
+        <div>Published payout table</div>
+        <code>{{ hand.payout_policy_snapshot.payout_table }}</code>
+    </div>
+
+    <div class="panel">
+        <h2>Audit Ledger</h2>
+        <div>Policy hash matches hand snapshot: <strong class="{% if ledger_verification.policy_hash_matches %}ok{% else %}bad{% endif %}">{{ ledger_verification.policy_hash_matches }}</strong></div>
+        <div>Sequence is contiguous: <strong class="{% if ledger_verification.sequence_matches %}ok{% else %}bad{% endif %}">{{ ledger_verification.sequence_matches }}</strong></div>
+        <div>Hash chain is valid: <strong class="{% if ledger_verification.hash_chain_matches %}ok{% else %}bad{% endif %}">{{ ledger_verification.hash_chain_matches }}</strong></div>
+        <div>Hand entries: {{ ledger_verification.entry_count }} of {{ ledger_verification.chain_entry_count }} table entries</div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Sequence</th>
+                    <th>Event</th>
+                    <th>Currency</th>
+                    <th>Stake</th>
+                    <th>Payout</th>
+                    <th>Balance Delta</th>
+                    <th>External Tx</th>
+                    <th>Entry Hash</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for entry in ledger_entries %}
+                <tr>
+                    <td>{{ entry.sequence }}</td>
+                    <td>{{ entry.event_type }}</td>
+                    <td>{{ entry.currency }}</td>
+                    <td>{{ entry.stake_amount }}</td>
+                    <td>{{ entry.payout_amount }}</td>
+                    <td>{{ entry.balance_delta }}</td>
+                    <td>{{ entry.external_txid }}</td>
+                    <td>{{ entry.entry_hash }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="8">No payout ledger entries exist for this hand.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</body>
+</html>

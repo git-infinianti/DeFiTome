@@ -20,7 +20,6 @@ from .models import (
     MarketFavorite, MarketOrder, StopLossOrder, OrderExecution, BalanceLock,
     UniqueAssetMintRequest,
 )
-from Explorer.rpc import RPC
 from Wallet.models import TrackedAssetHolding, WalletAddress
 from Wallet.wallet import Wallet
 from Wallet.asset_tracking import classify_asset_type, sync_tracked_assets
@@ -32,7 +31,7 @@ from Wallet.rpc import (
     create_and_send_atomic_asset_evr_swap_transaction,
     create_and_send_issue_unique_transaction,
 )
-from Tome.rpc_client import get_current_network_mode
+from Tome.rpc_client import RPC, get_current_network_mode
 from Settings.access import FEATURE_MARKET_MANAGEMENT, user_has_feature_access
 from Media.kubo_api import KuboAPIUploader
 from Media.models import IPFSUpload

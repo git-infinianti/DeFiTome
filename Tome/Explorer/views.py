@@ -1,8 +1,8 @@
 from django.shortcuts import render, redirect
 from django.core.cache import cache
 from django.http import Http404, JsonResponse
-from .rpc import RPC
 from Tome.rpc_client import (
+    RPC,
     clear_active_network_mode,
     clear_active_rpc_endpoint_mode,
     get_active_rpc_endpoint_mode,

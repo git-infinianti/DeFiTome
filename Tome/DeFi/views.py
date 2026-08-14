@@ -17,13 +17,12 @@ from Wallet.asset_tracking import classify_asset_type
 from Wallet.models import TrackedAsset, WalletAddress
 from Wallet.wallet import Wallet
 from Wallet.asset_units import normalize_amount_for_asset
-from Explorer.rpc import RPC
 from Wallet.rpc import (
     create_raw_atomic_asset_asset_swap_transaction,
     create_raw_atomic_asset_evr_swap_transaction,
     sign_and_broadcast_raw_transaction,
 )
-from Tome.rpc_client import get_current_network_mode
+from Tome.rpc_client import RPC, get_current_network_mode
 from .cleanup import purge_expired_swap_offers
 from .message_channels import ATOMIC_SWAP_REQUIRED_STAGES, get_active_atomic_swap_policy, record_atomic_swap_stage_event
 import statistics

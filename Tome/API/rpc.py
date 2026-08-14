@@ -44,11 +44,13 @@ class EvrmoreRPC:
             params["end"] = end
         return self.client.getaddresstxids(params)
     
-    def get_address_utxos(self, addresses, chainInfo=False):
+    def get_address_utxos(self, addresses, chainInfo=False, asset_name=None):
         """Get unspent transaction outputs for addresses"""
         params = {"addresses": addresses}
         if chainInfo:
             params["chainInfo"] = chainInfo
+        if asset_name:
+            params["assetName"] = str(asset_name)
         return self.client.getaddressutxos(params)
     
     # ============================================================
@@ -307,6 +309,10 @@ class EvrmoreRPC:
     def get_block(self, blockhash, verbosity=1):
         """Get block information"""
         return self.client.getblock(blockhash, verbosity)
+
+    def get_raw_transaction(self, transaction_id, verbose=False):
+        """Get a raw transaction by id."""
+        return self.client.getrawtransaction(transaction_id, verbose)
     
     def get_blockchain_info(self):
         """Get blockchain information"""

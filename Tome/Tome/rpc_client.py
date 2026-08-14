@@ -1,9 +1,8 @@
-"""Network-aware Evrmore RPC routing with local-first fallback.
+"""Network-aware Evrmore RPC routing with explicit endpoint selection.
 
-This module exposes a drop-in RPC client object that resolves the active
-network per request and attempts RPC calls in this order:
-1) local full node
-2) public endpoint for the selected network
+Each request is sent only to its selected endpoint. Public and local RPC
+backends never retry through one another. Both endpoint modes support mainnet
+and testnet when explicitly selected.
 """
 
 import logging
@@ -78,64 +77,53 @@ def clear_active_rpc_endpoint_mode():
         delattr(_thread_local, 'rpc_endpoint_mode')
 
 
+@contextmanager
+def using_rpc_endpoint_mode(rpc_endpoint_mode):
+    """Temporarily route calls through one configured RPC endpoint mode."""
+    previous_mode = get_active_rpc_endpoint_mode()
+    set_active_rpc_endpoint_mode(rpc_endpoint_mode)
+    try:
+        yield get_active_rpc_endpoint_mode()
+    finally:
+        set_active_rpc_endpoint_mode(previous_mode)
+
+
 class RoutedEvrmoreClient:
-    """Proxy client that retries Evrmore RPC calls across configured backends."""
+    """Proxy client that sends each RPC call to exactly one selected backend."""
 
     def __init__(self):
         self._clients = {}
 
     def __getattr__(self, method_name):
         def _wrapped(*args, **kwargs):
-            return self._call_with_fallback(method_name, *args, **kwargs)
+            return self._call_selected_endpoint(method_name, *args, **kwargs)
 
         return _wrapped
 
-    def _call_with_fallback(self, method_name, *args, **kwargs):
+    def _call_selected_endpoint(self, method_name, *args, **kwargs):
         network_mode = get_active_network_mode()
-        rpc_endpoint_mode = get_active_rpc_endpoint_mode()
-        attempt_errors = []
+        endpoint_mode = get_active_rpc_endpoint_mode()
+        backend_name, client = self._get_backend(network_mode, endpoint_mode)
+        method = getattr(client, method_name, None)
+        if method is None:
+            raise AttributeError(f'{backend_name.title()} RPC method {method_name!r} is unavailable.')
+        try:
+            return method(*args, **kwargs)
+        except Exception as exc:
+            logger.warning(
+                'RPC call failed. network=%s endpoint_mode=%s backend=%s method=%s error=%s',
+                network_mode,
+                endpoint_mode,
+                backend_name,
+                method_name,
+                str(exc),
+            )
+            raise
 
-        for backend_name, client in self._get_backends(network_mode, rpc_endpoint_mode):
-            method = getattr(client, method_name, None)
-            if method is None:
-                attempt_errors.append(f'{backend_name}: method unavailable')
-                continue
-
-            try:
-                return method(*args, **kwargs)
-            except Exception as exc:
-                error_message = f'{backend_name}: {str(exc)}'
-                attempt_errors.append(error_message)
-                # Fall through to alternate backends quietly; emit warning only if all fail.
-                logger.debug(
-                    'RPC call failed. network=%s endpoint_mode=%s backend=%s method=%s error=%s',
-                    network_mode,
-                    rpc_endpoint_mode,
-                    backend_name,
-                    method_name,
-                    str(exc),
-                )
-
-        combined_errors = ' | '.join(attempt_errors) if attempt_errors else 'No backends available'
-        logger.warning(
-            "RPC call '%s' failed across all backends. network=%s endpoint_mode=%s attempts=%s",
-            method_name,
-            network_mode,
-            rpc_endpoint_mode,
-            combined_errors,
-        )
-        raise Exception(
-            f"RPC call '{method_name}' failed for network '{network_mode}' "
-            f"with endpoint mode '{rpc_endpoint_mode}'. "
-            f'Attempts: {combined_errors}'
-        )
-
-    def _get_backends(self, network_mode, rpc_endpoint_mode):
-        local_backend = ('local', self._get_local_client(network_mode))
-        public_backend = ('public', self._get_public_client(network_mode))
+    def _get_backend(self, network_mode, rpc_endpoint_mode):
         if rpc_endpoint_mode == RPC_ENDPOINT_LOCAL:
-            return [local_backend, public_backend]
-        return [public_backend, local_backend]
+            return 'local', self._get_local_client(network_mode)
+        return 'public', self._get_public_client(network_mode)
 
     def _get_local_client(self, network_mode):
         cache_key = ('local', network_mode)
@@ -273,11 +261,6 @@ class AuthRpcClient:
         self.timeout = timeout
         self.auth = (username, password) if username or password else None
 
-        # Some local node deployments expose JSON-RPC on '/' instead of '/rpc'.
-        self.fallback_url = None
-        if self.url.endswith('/rpc'):
-            self.fallback_url = self.url[:-4] or '/'
-
     def __getattr__(self, method_name):
         def _call(*args, **kwargs):
             params = list(args)
@@ -291,37 +274,17 @@ class AuthRpcClient:
                 'params': params,
             }
 
-            response = None
-            try:
-                response = requests.post(
-                    self.url,
-                    json=payload,
-                    timeout=self.timeout,
-                    auth=self.auth,
-                )
-                body = response.json()
-                if body.get('error'):
-                    raise Exception(str(body['error']))
-                response.raise_for_status()
-            except requests.HTTPError as exc:
-                status_code = exc.response.status_code if exc.response is not None else None
-                if status_code == 404 and self.fallback_url:
-                    response = requests.post(
-                        self.fallback_url,
-                        json=payload,
-                        timeout=self.timeout,
-                        auth=self.auth,
-                    )
-                    body = response.json()
-                    if body.get('error'):
-                        raise Exception(str(body['error']))
-                    response.raise_for_status()
-                else:
-                    raise
+            response = requests.post(
+                self.url,
+                json=payload,
+                timeout=self.timeout,
+                auth=self.auth,
+            )
 
             body = response.json()
             if body.get('error'):
                 raise Exception(str(body['error']))
+            response.raise_for_status()
             return body.get('result')
 
         return _call

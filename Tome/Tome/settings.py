@@ -222,3 +222,9 @@ EVRMORE_PUBLIC_RPC_TESTNET_URL = config(
     default='https://evr-rpc-testnet.evrmorecoin.org/rpc',
 )
 
+# DEC casino routing for instance fees and game-spend settlements.
+DEC_SYSTEM_FEE_ADDRESS = config('DEC_SYSTEM_FEE_ADDRESS', default='')
+DEC_SYSTEM_FEE_ADDRESS_MAINNET = config('DEC_SYSTEM_FEE_ADDRESS_MAINNET', default='')
+DEC_SYSTEM_FEE_ADDRESS_TESTNET = config('DEC_SYSTEM_FEE_ADDRESS_TESTNET', default='')
+DEC_PLAYER_WAGER_TREASURY_BPS = config('DEC_PLAYER_WAGER_TREASURY_BPS', default=5000, cast=int)
+

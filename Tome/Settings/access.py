@@ -3,8 +3,10 @@ from django.utils import timezone
 
 FEATURE_MARKET_MANAGEMENT = 'market_management'
 FEATURE_PREMIUM_SWAP_TOOLS = 'premium_swap_tools'
+FEATURE_DEC_GAME_INSTANCE = 'dec_game_instance'
 
 MARKET_MANAGERS_GROUP = 'market_managers'
+DEC_GAME_MANAGERS_GROUP = 'dec_game_managers'
 
 
 def user_has_feature_access(user, feature_code):
@@ -20,6 +22,12 @@ def user_has_feature_access(user, feature_code):
         if user.has_perm('Listings.add_tradingpair') or user.has_perm('Listings.change_tradingpair'):
             return True
         if user.groups.filter(name=MARKET_MANAGERS_GROUP).exists():
+            return True
+
+    if feature_code == FEATURE_DEC_GAME_INSTANCE:
+        if user.has_perm('Listings.add_decpokergameinstance') or user.has_perm('Listings.change_decpokergameinstance'):
+            return True
+        if user.groups.filter(name=DEC_GAME_MANAGERS_GROUP).exists():
             return True
 
     membership = getattr(user, 'membership', None)
@@ -45,3 +53,4 @@ def user_has_feature_access(user, feature_code):
 def ensure_access_scaffold_groups():
     """Create baseline groups used by feature access checks."""
     Group.objects.get_or_create(name=MARKET_MANAGERS_GROUP)
+    Group.objects.get_or_create(name=DEC_GAME_MANAGERS_GROUP)

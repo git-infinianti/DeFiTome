@@ -23,6 +23,7 @@ from .asset_creation import create_asset_for_user
 from .asset_tracking import classify_asset_type, sync_tracked_assets
 from .rpc import RPC, create_and_send_evr_transaction, create_and_send_asset_transfer_transaction
 from API.models import AtomicSwapTransferMessage, DexMarketEventMessage, MessageChannelPolicy
+from Listings.models import DecPokerHand
 from API.channel_console_service import (
     burn_channel_asset_for_revision,
     create_channel_console_asset_for_user,
@@ -31,6 +32,13 @@ from API.channel_console_service import (
     set_channel_subscription,
 )
 from API.channel_console_lib import DEFAULT_ALLOWED_STAGES
+from API.unified_workflow_policy import (
+    UNIFIED_WORKFLOW_CHANNEL_KEY,
+    UNIFIED_WORKFLOW_CHANNEL_TAG,
+    UNIFIED_WORKFLOW_DESCRIPTION,
+    UNIFIED_WORKFLOW_POLICY_VERSION,
+    UNIFIED_WORKFLOW_STRICT_RULES,
+)
 from hdwallet.entropies import BIP39Entropy
 from hdwallet.derivations import BIP44Derivation, CHANGES
 from hdwallet import cryptocurrencies
@@ -39,32 +47,22 @@ from Tome.qr import build_qr_data_uri
 
 
 SAFETRADE_BASE_URL = 'https://safe.trade/api/v2'
-DEFAULT_CHANNEL_DESCRIPTION = (
-    'Strict v1 console policy for atomic swap transfer messaging. '
-    'Designed for backward-compatible stage broadcasts and governance-safe test iteration.'
-)
+DEFAULT_CHANNEL_DESCRIPTION = UNIFIED_WORKFLOW_DESCRIPTION
 
 
 def _build_testnet_proposed_policies():
     return [
         {
-            'name': 'Atomic Swap Transfer v2 Proposal',
-            'target_version': 2,
-            'summary': 'Adds stronger reconciliation guidance and operator audit conventions while remaining backward compatible with v1 stage handling.',
+            'name': 'Unified DeFiTome Workflow v5 Proposal',
+            'target_version': UNIFIED_WORKFLOW_POLICY_VERSION,
+            'summary': (
+                'Requires canonical checksummed event envelopes and fail-closed channel-asset '
+                'lineage reconciliation for shared swap, market, and DEC lifecycle events.'
+            ),
             'changes': [
-                'Keep the v1 stage sequence unchanged so existing broadcasters remain valid.',
-                'Add operator guidance for richer details payloads such as reconciliation_reason and tx_origin.',
-                'Preserve strict console mode and immutable payload expectations.',
-            ],
-        },
-        {
-            'name': 'Atomic Swap Transfer v3 Proposal',
-            'target_version': 3,
-            'summary': 'Introduces governance review and incident classification conventions without removing any v1 or v2-compatible behavior.',
-            'changes': [
-                'Retain existing channel key compatibility and ordering assumptions.',
-                'Standardize incident-oriented detail fields for failed and pending reconciliation stages.',
-                'Document rollout only for testnet until policy consumers confirm readiness.',
+                'Require complete strict-stage coverage for all governed workflows.',
+                'Use canonical event ids, aggregate sequences, and payload checksums for replayable events.',
+                'Require a new immutable SWAPFLOWV5 channel asset before the v5 policy can activate.',
             ],
         },
     ]
@@ -131,6 +129,51 @@ def _channel_event_console(network_mode, query_params):
             'error_message': message.error_message,
             'created_at': message.created_at,
         } for message in market_messages)
+
+    if event_type in {'', 'dec'}:
+        dec_hands = DecPokerHand.objects.filter(
+            game_instance__network_mode=network_mode,
+        ).select_related(
+            'game_instance__channel_policy', 'player'
+        ).order_by('-created_at')
+        if channel_id.isdigit():
+            dec_hands = dec_hands.filter(game_instance__channel_policy_id=int(channel_id))
+
+        for hand in dec_hands[:200]:
+            for event_name, event_stage, event_status, event_txid in (
+                (
+                    'spend',
+                    'game_spend_recorded',
+                    hand.spend_message_status,
+                    hand.spend_message_txid,
+                ),
+                (
+                    'reward',
+                    'game_reward_distributed',
+                    hand.reward_message_status,
+                    hand.reward_message_txid,
+                ),
+            ):
+                if event_name == 'reward' and hand.reward_amount <= 0:
+                    continue
+                if status and status != event_status:
+                    continue
+                if stage and stage != event_stage:
+                    continue
+                event_payload = (hand.outcome_detail or {}).get('message_events', {}).get(event_name) or {}
+                rows.append({
+                    'event_type': 'DEC',
+                    'object_id': hand.id,
+                    'channel': hand.game_instance.channel_policy,
+                    'stage': event_stage,
+                    'status': event_status,
+                    'actor': hand.player,
+                    'payload': event_payload,
+                    'payload_ipfs_cid': event_payload.get('payload_cid', ''),
+                    'broadcast_result': event_txid,
+                    'error_message': event_payload.get('reason', ''),
+                    'created_at': hand.created_at,
+                })
 
     rows.sort(key=lambda row: row['created_at'], reverse=True)
     return rows[:200], {
@@ -1312,9 +1355,25 @@ def messaging_channel_management(request):
                 'proposal_status': 'draft',
             })
 
+            draft_channel_name = source_policy.channel_name
+            chain_metadata_status = source_policy.chain_metadata_status
+            chain_metadata_error = source_policy.chain_metadata_error
+            if source_policy.channel_key == UNIFIED_WORKFLOW_CHANNEL_KEY:
+                strict_rules.update({
+                    'requires_new_channel_asset': True,
+                    'required_channel_tag': UNIFIED_WORKFLOW_CHANNEL_TAG,
+                    **UNIFIED_WORKFLOW_STRICT_RULES,
+                })
+                source_root = source_policy.channel_name.split('~', 1)[0].strip().upper()
+                draft_channel_name = f'{source_root}~{UNIFIED_WORKFLOW_CHANNEL_TAG}'
+                chain_metadata_status = MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING
+                chain_metadata_error = (
+                    'A v5 draft requires issuance and verification of its distinct immutable channel asset.'
+                )
+
             MessageChannelPolicy.objects.create(
                 channel_key=source_policy.channel_key,
-                channel_name=source_policy.channel_name,
+                channel_name=draft_channel_name,
                 network_mode='testnet',
                 version=draft_version,
                 status='draft',
@@ -1324,6 +1383,8 @@ def messaging_channel_management(request):
                 schema_version=source_policy.schema_version,
                 allowed_stages=source_policy.allowed_stages,
                 strict_rules=strict_rules,
+                chain_metadata_status=chain_metadata_status,
+                chain_metadata_error=chain_metadata_error,
                 is_locked=source_policy.is_locked,
             )
             messages.success(request, f'Created draft policy v{draft_version} for {source_policy.channel_key} from the selected proposal.')
@@ -1484,10 +1545,10 @@ def messaging_channel_management(request):
     ).order_by('channel_name', '-version')
 
     selected_admin_asset = ''
-    selected_channel_tag = ''
-    selected_channel_key = ''
+    selected_channel_tag = UNIFIED_WORKFLOW_CHANNEL_TAG
+    selected_channel_key = UNIFIED_WORKFLOW_CHANNEL_KEY
     selected_channel_name = ''
-    selected_channel_version = '1'
+    selected_channel_version = str(UNIFIED_WORKFLOW_POLICY_VERSION)
     selected_description = DEFAULT_CHANNEL_DESCRIPTION
     selected_allowed_stages = ', '.join(DEFAULT_ALLOWED_STAGES)
     selected_strict_rules = {

@@ -123,6 +123,7 @@
             <a class="active" href="{% url 'home' %}">Overview</a>
             <a href="{% url 'portfolio' %}">Wallet</a>
             <a href="{% url 'markets' %}">Markets</a>
+            <a href="{% url 'dec_poker_lobby' %}">Casino</a>
             <a href="{% url 'available_swap_offers' %}">Atomic Swaps</a>
             <a href="{% url 'explorer' %}">Explorer</a>
             <a href="{% url 'media_list' %}">Media</a>
@@ -142,6 +143,7 @@
         </section>
         <nav class="actions" aria-label="Quick actions">
             <a class="action primary" href="{% url 'markets' %}"><i data-lucide="candlestick-chart"></i>Choose a market</a>
+            <a class="action" href="{% url 'dec_poker_lobby' %}"><i data-lucide="spade"></i>Open casino</a>
             <a class="action" href="{% url 'send_funds' %}"><i data-lucide="send"></i>Send</a>
             <a class="action" href="{% url 'recieve_funds' %}"><i data-lucide="download"></i>Receive</a>
             <a class="action" href="{% url 'create_listing' %}"><i data-lucide="repeat-2"></i>Create atomic swap</a>

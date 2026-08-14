@@ -12,6 +12,8 @@ from Wallet.asset_units import get_asset_units
 from Wallet.asset_creation import build_asset_operation, create_asset_for_user
 from Wallet.models import AssetCreationRequest, TrackedAsset, TrackedAssetHolding, UserWallet, WalletAddress, WalletProfile, WalletPreferences
 from API.models import MessageChannelPolicy
+from API.channel_console_lib import DEFAULT_ALLOWED_STAGES
+from Listings.models import DecPokerGameInstance, DecPokerHand
 from Wallet.rip10 import (
     RIP10ValidationError,
     asset_matches_address,
@@ -65,6 +67,42 @@ class RIP10AddressMetadataTests(TestCase):
             parse_address_metadata_asset('TOMETAGS#ANT_NOT-A-CRC')
 
 
+class PublicTransactionEvidenceTests(TestCase):
+    @patch('Wallet.rpc.PublicRpcClient')
+    def test_public_transaction_evidence_requires_and_records_confirmation(self, mock_client_class):
+        transaction_id = 'a' * 64
+        mock_client_class.return_value.getrawtransaction.return_value = {
+            'txid': transaction_id.upper(),
+            'confirmations': 2,
+            'blockhash': 'b' * 64,
+            'blocktime': 100,
+            'time': 99,
+        }
+
+        evidence = rpc.get_public_transaction_evidence(
+            transaction_id.upper(),
+            network_mode='testnet',
+        )
+
+        self.assertEqual(evidence['transaction_id'], transaction_id)
+        self.assertEqual(evidence['confirmations'], 2)
+        self.assertEqual(evidence['block_hash'], 'b' * 64)
+        mock_client_class.return_value.getrawtransaction.assert_called_once_with(transaction_id, True)
+
+    @patch('Wallet.rpc.PublicRpcClient')
+    def test_public_transaction_evidence_rejects_unconfirmed_and_malformed_ids(self, mock_client_class):
+        transaction_id = 'a' * 64
+        mock_client_class.return_value.getrawtransaction.return_value = {
+            'txid': transaction_id,
+            'confirmations': 0,
+        }
+
+        with self.assertRaisesMessage(ValueError, 'at least 1 are required'):
+            rpc.get_public_transaction_evidence(transaction_id)
+        with self.assertRaisesMessage(ValueError, 'canonical 64-character'):
+            rpc.get_public_transaction_evidence('not-a-transaction-id')
+
+
 class UniqueAssetIssuanceTests(TestCase):
     @patch('Wallet.rpc._resolve_burn_address', return_value='testnet-unique-burn-address')
     @patch('Wallet.rpc.create_and_send_asset_operation_transaction', return_value={'txid': 'tag-txid'})
@@ -82,7 +120,42 @@ class UniqueAssetIssuanceTests(TestCase):
         self.assertEqual(result, {'txid': 'tag-txid'})
         self.assertEqual(mock_create_and_send.call_args.kwargs['wif_keys'], ['owner-wif'])
         self.assertEqual(mock_create_and_send.call_args.kwargs['burn_address'], 'testnet-unique-burn-address')
+        self.assertEqual(
+            mock_create_and_send.call_args.kwargs['operation_payload'],
+            {
+                '_issue_new_asset': {
+                    'asset_name': 'TOMETAGS#ANT_C38D582B',
+                    'asset_quantity': 1.0,
+                    'units': 0,
+                    'reissuable': 0,
+                    'has_ipfs': 1,
+                    'ipfs_hash': 'QmMetadataCid',
+                },
+            },
+        )
         mock_resolve_burn.assert_called_once_with('issue_unique_asset')
+
+    @patch('Wallet.rpc._resolve_burn_address', return_value='testnet-unique-burn-address')
+    @patch('Wallet.rpc.create_and_send_asset_operation_transaction', return_value={'txid': 'tag-txid'})
+    def test_issue_unique_preserves_multi_tag_request_shape(self, mock_create_and_send, _mock_resolve_burn):
+        rpc.create_and_send_issue_unique_transaction(
+            from_address='owner-address',
+            issuer_address='recipient-address',
+            root_name='TOMETAGS',
+            asset_tags=['ONE', 'TWO'],
+            ipfs_hashes=['QmOne', 'QmTwo'],
+        )
+
+        self.assertEqual(
+            mock_create_and_send.call_args.kwargs['operation_payload'],
+            {
+                'issue_unique': {
+                    'root_name': 'TOMETAGS',
+                    'asset_tags': ['ONE', 'TWO'],
+                    'ipfs_hashes': ['QmOne', 'QmTwo'],
+                },
+            },
+        )
 
     @patch('Wallet.rpc._resolve_burn_address', return_value='testnet-channel-burn-address')
     @patch('Wallet.rpc.create_and_send_asset_operation_transaction', return_value={'txid': 'channel-txid'})
@@ -348,26 +421,30 @@ class RawTransactionBuilderTests(TestCase):
 
         mock_send.assert_not_called()
 
-    @patch('Wallet.rpc.RPC.estimatefee', return_value=Decimal('0.03'))
     @patch('Wallet.rpc.RPC.estimatesmartfee', return_value={'feerate': Decimal('0.02'), 'blocks': 2})
-    def test_fee_estimator_uses_highest_smart_or_legacy_rate(self, mock_smart_fee, mock_legacy_fee):
+    def test_fee_estimator_uses_a_valid_smart_fee_rate(self, mock_smart_fee):
         feerate, metadata = rpc._get_estimated_feerate_evr_per_kb(conf_target=2)
 
-        self.assertEqual(feerate, Decimal('0.03'))
-        self.assertEqual(metadata['sources']['estimatefee'], Decimal('0.03'))
+        self.assertEqual(feerate, Decimal('0.02'))
         mock_smart_fee.assert_called_once_with(2, 'CONSERVATIVE')
-        mock_legacy_fee.assert_called_once_with(2)
 
-    @patch('Wallet.rpc.RPC.estimatefee', return_value=Decimal('0.025'))
     @patch(
         'Wallet.rpc.RPC.estimatesmartfee',
         return_value={'errors': ['Insufficient data or no feerate found'], 'blocks': 6},
     )
-    def test_fee_estimator_falls_back_to_legacy_rate(self, _mock_smart_fee, _mock_legacy_fee):
+    def test_fee_estimator_returns_none_when_smart_fee_data_is_unavailable(self, _mock_smart_fee):
         feerate, metadata = rpc._get_estimated_feerate_evr_per_kb(conf_target=6)
 
-        self.assertEqual(feerate, Decimal('0.025'))
+        self.assertIsNone(feerate)
         self.assertIn('Insufficient data or no feerate found', metadata['errors'])
+
+    @patch('Wallet.rpc.RPC.getmempoolinfo', return_value={'mempoolminfee': Decimal('0.02')})
+    def test_fee_floor_uses_mempool_minimum(self, mock_mempool_info):
+        fee_floor, metadata = rpc._get_fee_floor_evr_per_kb()
+
+        self.assertEqual(fee_floor, Decimal('0.02'))
+        self.assertEqual(metadata['errors'], [])
+        mock_mempool_info.assert_called_once_with()
 
     @patch('Wallet.rpc._get_estimated_feerate_evr_per_kb', return_value=(None, {}))
     @patch('Wallet.rpc._get_fee_floor_evr_per_kb', return_value=(Decimal('0.01'), {}))
@@ -455,6 +532,44 @@ class RawTransactionBuilderTests(TestCase):
         self.assertEqual(
             outputs[0]['channel-address']['transferwithmessage'],
             {'ROOT~SWAPS': 1.0, 'message': 'QmPayload', 'expire_time': 0},
+        )
+
+    @patch('Wallet.rpc.create_raw_transaction', return_value='raw-message-transfer')
+    @patch('Wallet.rpc._resolve_fee_satoshis', return_value=1000)
+    @patch('Wallet.rpc._estimate_signed_tx_size_bytes', return_value=250)
+    @patch('Wallet.rpc._mempool_spent_outpoints', return_value={('spent-evr', 0)})
+    @patch(
+        'Wallet.rpc._get_address_utxos',
+        return_value=[
+            {'txid': 'spent-evr', 'outputIndex': 0, 'satoshis': 100000},
+            {'txid': 'available-evr', 'outputIndex': 1, 'satoshis': 100000},
+        ],
+    )
+    @patch('Wallet.rpc._select_asset_inputs', return_value=([{'txid': 'channel', 'vout': 0}], Decimal('1'), 0))
+    def test_raw_asset_transfer_excludes_mempool_spent_fee_inputs(
+        self,
+        _mock_asset_inputs,
+        _mock_utxos,
+        _mock_mempool_spent,
+        _mock_size,
+        _mock_fee,
+        _mock_create_raw,
+    ):
+        result = rpc.create_raw_asset_transfer_transaction(
+            from_address='channel-address',
+            to_address='channel-address',
+            asset_name='ROOT~SWAPS',
+            asset_quantity=Decimal('1'),
+            message='QmPayload',
+            expire_time=0,
+        )
+
+        self.assertEqual(
+            result['inputs'],
+            [
+                {'txid': 'channel', 'vout': 0},
+                {'txid': 'available-evr', 'vout': 1},
+            ],
         )
 
     @patch('Wallet.rpc.RPC.createrawtransaction')
@@ -939,9 +1054,83 @@ class MessagingChannelManagementViewTests(TestCase):
         self.assertTemplateUsed(response, 'portfolio/messaging_channels.html')
         self.assertContains(response, '<option value="ROOT!"', html=False)
         self.assertContains(response, '<option value="OPS!"', html=False)
-        self.assertContains(response, 'value="1"', html=False)
-        self.assertContains(response, 'Strict v1 console policy for atomic swap transfer messaging.')
+        self.assertContains(response, 'value="5"', html=False)
+        self.assertContains(response, 'Unified v5 DeFiTome messaging console for replayable swap, market, and DEC lifecycle events.')
         self.assertContains(response, 'Proposed Policies')
+
+    @patch('Wallet.views._get_stored_admin_assets', return_value=[])
+    @patch('Wallet.views.scan_channel_console_assets', return_value={'valid_channels': [], 'invalid_channels': []})
+    def test_console_lists_failed_dec_event_from_another_player(self, _mock_scan, _mock_admin_assets):
+        policy = MessageChannelPolicy.objects.create(
+            channel_key='tome0808_swapflow',
+            channel_name='TOME0808~SWAPFLOWV5',
+            network_mode='testnet',
+            version=5,
+            status='active',
+            owner_account=self.system_user,
+            manager_account=self.user,
+            allowed_stages=list(DEFAULT_ALLOWED_STAGES),
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
+        )
+        address = WalletAddress.objects.create(
+            wallet=self.user.user_wallet,
+            network_mode='testnet',
+            address='mReconcileConsoleAddress',
+            wif='reconcile-console-wif',
+            account=0,
+            index=0,
+            is_change=False,
+        )
+        profile = WalletProfile.objects.create(
+            wallet=self.user.user_wallet,
+            address=address,
+            network_mode='testnet',
+            name='Console DEC Vault',
+            is_main=True,
+        )
+        player = User.objects.create_user(username='dec-channel-player', password='testpass123')
+        instance = DecPokerGameInstance.objects.create(
+            creator=self.user,
+            manager_account=self.system_user,
+            network_mode='testnet',
+            title='Console DEC Table',
+            reward_asset_name='CONSOLEDEC',
+            reward_supply=Decimal('1000'),
+            entry_fee_evr=Decimal('0.5'),
+            reward_per_win=Decimal('10'),
+            system_fee_address=address.address,
+            vault_profile=profile,
+            channel_policy=policy,
+            status=DecPokerGameInstance.STATUS_ACTIVE,
+            is_active=True,
+        )
+        hand = DecPokerHand.objects.create(
+            game_instance=instance,
+            player=player,
+            wager_evr=Decimal('0.5'),
+            reward_amount=Decimal('0'),
+            reward_asset_name='CONSOLEDEC',
+            result=DecPokerHand.RESULT_LOSE,
+            spend_message_status=DecPokerHand.MESSAGE_STATUS_FAILED,
+            outcome_detail={
+                'message_events': {
+                    'spend': {
+                        'reason': 'channel UTXO is pending confirmation',
+                    },
+                },
+            },
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse('messaging_channel_management') + '?event_type=dec&event_status=failed'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'DEC #{hand.id}')
+        self.assertContains(response, 'game_spend_recorded')
+        self.assertContains(response, player.username)
+        self.assertContains(response, 'channel UTXO is pending confirmation')
 
     @patch('Wallet.views._get_stored_admin_assets', return_value=[])
     @patch('Wallet.views.scan_channel_console_assets', return_value={'valid_channels': [], 'invalid_channels': []})
@@ -1012,7 +1201,7 @@ class MessagingChannelManagementViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Created channel ROOT~OPS with policy version 1')
-        self.assertContains(response, 'name="channel_version" type="number" min="1" step="1" placeholder="auto" value="1"', html=False)
+        self.assertContains(response, 'name="channel_version" type="number" min="1" step="1" placeholder="auto" value="5"', html=False)
         mock_create_channel.assert_called_once()
         sent_payload = mock_create_channel.call_args.args[1]
         self.assertNotIn('qty', sent_payload)
@@ -1134,18 +1323,18 @@ class MessagingChannelManagementViewTests(TestCase):
         response = self.client.post(reverse('messaging_channel_management'), {
             'action': 'promote_proposal_to_draft',
             'policy_id': str(policy.id),
-            'proposal_version': '2',
+            'proposal_version': '5',
         }, follow=True)
 
         self.assertEqual(response.status_code, 200)
         draft = MessageChannelPolicy.objects.get(
             channel_key='root_ops_console',
             network_mode='testnet',
-            version=2,
+            version=5,
         )
         self.assertEqual(draft.status, 'draft')
         self.assertEqual(draft.strict_rules.get('proposal_status'), 'draft')
-        self.assertContains(response, 'Created draft policy v2 for root_ops_console')
+        self.assertContains(response, 'Created draft policy v5 for root_ops_console')
 
 
 class SendFundsViewTests(TestCase):

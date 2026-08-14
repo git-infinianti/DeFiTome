@@ -399,6 +399,7 @@
                 <nav>
                     <a href="{% url 'markets' %}">Markets</a>
                     <a href="{% url 'markets' %}">Decentralized Exchange</a>
+                    <a href="{% url 'dec_poker_lobby' %}">Casino</a>
                     <a href="{% url 'my_orders' %}">Orders</a>
                     <a href="{% url 'portfolio' %}">Portfolio</a>
                 </nav>
@@ -417,6 +418,7 @@
         </section>
         
         <div class="page-actions">
+            <a href="{% url 'dec_poker_lobby' %}" class="btn btn-secondary">DEC Casino</a>
             {% if can_manage_markets %}
             <a href="{% url 'create_market' %}" class="btn btn-primary">+ Create Market</a>
             {% endif %}

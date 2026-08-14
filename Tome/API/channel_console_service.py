@@ -23,6 +23,13 @@ from API.channel_console_lib import (
     normalize_channel_tag,
     validate_console_metadata,
 )
+from API.unified_workflow_policy import (
+    UNIFIED_WORKFLOW_CHANNEL_KEY,
+    UNIFIED_WORKFLOW_CHANNEL_TAG,
+    UNIFIED_WORKFLOW_DESCRIPTION,
+    UNIFIED_WORKFLOW_POLICY_VERSION,
+    UNIFIED_WORKFLOW_STRICT_RULES,
+)
 from Media.kubo_api import KuboAPIUploader
 
 
@@ -241,6 +248,72 @@ def _validate_existing_channel_asset_binding(channel_asset_name, channel_key, ne
     return cid
 
 
+def _is_unified_workflow_v5(channel_key, policy_version):
+    return (
+        channel_key == UNIFIED_WORKFLOW_CHANNEL_KEY
+        and int(policy_version) == UNIFIED_WORKFLOW_POLICY_VERSION
+    )
+
+
+def _build_unified_workflow_v5_metadata(channel_tag, metadata):
+    if str(channel_tag).strip().upper() != UNIFIED_WORKFLOW_CHANNEL_TAG:
+        raise ValueError(
+            f'Unified workflow v{UNIFIED_WORKFLOW_POLICY_VERSION} requires channel tag '
+            f'{UNIFIED_WORKFLOW_CHANNEL_TAG}.'
+        )
+
+    normalized_metadata = dict(metadata or {})
+    provided_rules = normalized_metadata.get('strict_rules')
+    if provided_rules is not None and not isinstance(provided_rules, dict):
+        raise ValueError('strict_rules must be a JSON object.')
+    normalized_metadata.update({
+        'description': str(
+            normalized_metadata.get('description') or UNIFIED_WORKFLOW_DESCRIPTION
+        ).strip(),
+        'allowed_stages': list(DEFAULT_ALLOWED_STAGES),
+        'strict_rules': {
+            **dict(provided_rules or {}),
+            **UNIFIED_WORKFLOW_STRICT_RULES,
+        },
+        'console_type': 'defitome_workflow_event',
+    })
+    return normalized_metadata
+
+
+def _validate_unified_workflow_v5_metadata(policy, asset_name, metadata):
+    if policy is None or not _is_unified_workflow_v5(policy.channel_key, policy.version):
+        return
+    expected_asset_name = f'{str(asset_name).split("~", 1)[0]}~{UNIFIED_WORKFLOW_CHANNEL_TAG}'
+    if str(asset_name).strip().upper() != expected_asset_name.upper():
+        raise ValueError(
+            f'Unified workflow v{UNIFIED_WORKFLOW_POLICY_VERSION} must use asset '
+            f'tag {UNIFIED_WORKFLOW_CHANNEL_TAG}.'
+        )
+    if str(metadata.get('channel_key') or '').strip().lower() != UNIFIED_WORKFLOW_CHANNEL_KEY:
+        raise ValueError('Unified workflow v5 metadata has an unexpected channel key.')
+    allowed_stages = {str(stage).strip().lower() for stage in (metadata.get('allowed_stages') or [])}
+    if allowed_stages != set(DEFAULT_ALLOWED_STAGES):
+        raise ValueError('Unified workflow v5 metadata must declare the complete lifecycle stage set.')
+    strict_rules = metadata.get('strict_rules')
+    if not isinstance(strict_rules, dict):
+        raise ValueError('Unified workflow v5 metadata requires strict rules.')
+    for key, expected_value in UNIFIED_WORKFLOW_STRICT_RULES.items():
+        if strict_rules.get(key) != expected_value:
+            raise ValueError(f'Unified workflow v5 metadata requires strict rule {key!r}.')
+
+
+def _activate_verified_unified_workflow_v5_policy(policy):
+    if policy is None or not _is_unified_workflow_v5(policy.channel_key, policy.version):
+        return
+    with transaction.atomic():
+        MessageChannelPolicy.objects.filter(
+            channel_key=policy.channel_key,
+            network_mode=policy.network_mode,
+            status='active',
+        ).exclude(pk=policy.pk).update(status='deprecated')
+        MessageChannelPolicy.objects.filter(pk=policy.pk).update(status='active')
+
+
 def create_channel_console_asset_for_user(user, data):
     network_mode = str(data.get('network_mode') or get_current_network_mode()).strip().lower()
     if network_mode not in {'mainnet', 'testnet'}:
@@ -256,6 +329,42 @@ def _create_channel_console_asset_for_user(user, data, network_mode):
         data.get('channel_key') or f'{admin_asset[:-1].lower()}_{channel_tag.lower().replace("-", "_")}'
     )
     channel_asset_name = validate_channel_asset_name(build_channel_asset_name(admin_asset, channel_tag))
+
+    requested_version = data.get('channel_version')
+    existing_draft = None
+    if requested_version is not None and str(requested_version).strip():
+        requested_version = int(requested_version)
+        existing_policy = MessageChannelPolicy.objects.filter(
+            channel_key=channel_key,
+            network_mode=network_mode,
+            version=requested_version,
+        ).first()
+        if existing_policy is not None:
+            if (
+                existing_policy.status == 'draft'
+                and existing_policy.channel_name == channel_asset_name
+            ):
+                existing_draft = existing_policy
+                policy_version = requested_version
+            else:
+                raise ValueError('Requested channel_version already exists for this key and network.')
+        else:
+            policy_version = _resolve_policy_version(
+                channel_key=channel_key,
+                network_mode=network_mode,
+                requested_version=requested_version,
+            )
+    else:
+        policy_version = _resolve_policy_version(
+            channel_key=channel_key,
+            network_mode=network_mode,
+            requested_version=None,
+        )
+
+    is_unified_workflow_v5 = _is_unified_workflow_v5(channel_key, policy_version)
+    metadata = data.get('metadata') or {}
+    if is_unified_workflow_v5:
+        metadata = _build_unified_workflow_v5_metadata(channel_tag, metadata)
 
     balances, owned_addresses = get_user_asset_balances(user, network_mode=network_mode)
     owned_admin_assets = get_owned_admin_assets(user, network_mode=network_mode)
@@ -275,7 +384,7 @@ def _create_channel_console_asset_for_user(user, data, network_mode):
         asset_name=channel_asset_name,
         channel_key=channel_key,
         channel_name=str(data.get('channel_name') or channel_asset_name).strip(),
-        metadata=data.get('metadata') or {},
+        metadata=metadata,
     )
     metadata_ipfs_cid = existing_metadata_cid
     if not asset_already_exists:
@@ -324,48 +433,60 @@ def _create_channel_console_asset_for_user(user, data, network_mode):
         },
     )
 
-    policy_version = _resolve_policy_version(
-        channel_key=channel_key,
-        network_mode=network_mode,
-        requested_version=data.get('channel_version'),
-    )
-
-    MessageChannelPolicy.objects.filter(
-        channel_key=channel_key,
-        network_mode=network_mode,
-        status='active',
-    ).update(status='deprecated')
-
-    policy = MessageChannelPolicy.objects.create(
-        channel_key=channel_key,
-        channel_name=channel_asset_name,
-        network_mode=network_mode,
-        version=policy_version,
-        status='active',
-        owner_account=system_user,
-        manager_account=user,
-        schema_name='defitome.atomic-swap-transfer-message',
-        schema_version=1,
-        allowed_stages=metadata_payload.get('allowed_stages') or DEFAULT_ALLOWED_STAGES,
-        strict_rules=metadata_payload.get('strict_rules') or {
+    policy_values = {
+        'channel_name': channel_asset_name,
+        'network_mode': network_mode,
+        'version': policy_version,
+        'status': (
+            'draft'
+            if is_unified_workflow_v5
+            else 'active'
+        ),
+        'owner_account': system_user,
+        'manager_account': user,
+        'schema_name': 'defitome.atomic-swap-transfer-message',
+        'schema_version': 1,
+        'allowed_stages': metadata_payload.get('allowed_stages') or DEFAULT_ALLOWED_STAGES,
+        'strict_rules': metadata_payload.get('strict_rules') or {
             'console_mode': 'strict',
             'immutable_payload': True,
             'allow_unregistered_keys': False,
         },
-        metadata_ipfs_cid=metadata_ipfs_cid,
-        issuance_txid=txid,
-        chain_metadata_status=(
+        'metadata_ipfs_cid': metadata_ipfs_cid,
+        'issuance_txid': txid or str(getattr(existing_draft, 'issuance_txid', '') or ''),
+        'chain_metadata_status': (
             MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED
-            if asset_already_exists
+            if asset_already_exists and not is_unified_workflow_v5
             else MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING
         ),
-        is_locked=True,
-    )
+        'chain_metadata_error': (
+            'Awaiting independent verification of the v5 channel asset metadata.'
+            if is_unified_workflow_v5
+            else ''
+        ),
+        'is_locked': True,
+    }
+    if existing_draft is not None:
+        for field_name, value in policy_values.items():
+            setattr(existing_draft, field_name, value)
+        existing_draft.save()
+        policy = existing_draft
+    else:
+        if not is_unified_workflow_v5:
+            MessageChannelPolicy.objects.filter(
+                channel_key=channel_key,
+                network_mode=network_mode,
+                status='active',
+            ).update(status='deprecated')
+        policy = MessageChannelPolicy.objects.create(
+            channel_key=channel_key,
+            **policy_values,
+        )
 
     return {
         'channel_asset_name': channel_asset_name,
         'metadata_ipfs_cid': metadata_ipfs_cid,
-        'txid': txid,
+        'txid': str(policy.issuance_txid or ''),
         'channel_policy': {
             'channel_key': policy.channel_key,
             'version': policy.version,
@@ -437,6 +558,19 @@ def validate_channel_console_asset(asset_name, network_mode=None):
         raise ValueError('network_mode must be mainnet or testnet.')
     with using_network_mode(resolved_network_mode):
         normalized_name, cid, payload = _validated_channel_console(asset_name)
+    policy = _channel_policy_for_asset(normalized_name, resolved_network_mode)
+    _validate_unified_workflow_v5_metadata(
+        policy,
+        normalized_name,
+        payload,
+    )
+    if policy is not None and _is_unified_workflow_v5(policy.channel_key, policy.version):
+        _update_policy_chain_metadata(
+            policy,
+            MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
+            cid=cid,
+        )
+        _activate_verified_unified_workflow_v5_policy(policy)
     return {
         'asset_name': normalized_name,
         'ipfs_cid': cid,
@@ -653,11 +787,13 @@ def _scan_channel_console_assets(asset_pattern, count, start, resolved_network_m
 
             payload = KuboAPIUploader().download_json(cid)
             validate_console_metadata(asset_name, payload)
+            _validate_unified_workflow_v5_metadata(policy, asset_name, payload)
             _update_policy_chain_metadata(
                 policy,
                 MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
                 cid=cid,
             )
+            _activate_verified_unified_workflow_v5_policy(policy)
             valid.append({
                 'asset_name': asset_name,
                 'ipfs_cid': cid,

@@ -1,0 +1,378 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ instance.title }} | DEC Poker</title>
+    {% include "listings/dec_theme.html" %}
+    <style>
+        :root {
+            --felt-a: #103f35;
+            --felt-b: #1a5b47;
+            --felt-c: #2f7f64;
+            --paper: #efe9dc;
+            --ink: #222;
+            --gold: #c3982b;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Trebuchet MS", "Avenir Next", sans-serif;
+            color: var(--paper);
+            background:
+                repeating-linear-gradient(45deg, rgba(255,255,255,0.03) 0, rgba(255,255,255,0.03) 8px, transparent 8px, transparent 16px),
+                linear-gradient(160deg, var(--felt-a), var(--felt-b) 45%, var(--felt-c));
+            min-height: 100vh;
+        }
+
+        .wrap {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 1.25rem;
+        }
+
+        .panel {
+            background: rgba(0, 0, 0, 0.28);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            backdrop-filter: blur(2px);
+        }
+
+        .meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+            gap: 0.6rem;
+            color: #f4f0e8;
+            margin: 0.8rem 0;
+        }
+
+        .meta div {
+            background: rgba(255,255,255,0.08);
+            border-radius: 8px;
+            padding: 0.5rem;
+            min-width: 0;
+        }
+
+        .meta .meta-wide {
+            grid-column: 1 / -1;
+        }
+
+        .meta-label {
+            display: block;
+            margin-bottom: 0.2rem;
+            color: #cbd8d1;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .meta .mono-value {
+            display: block;
+            padding: 0.35rem;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            white-space: normal;
+            border-radius: 4px;
+            background: rgba(0,0,0,0.2);
+            color: #f4f0e8;
+            font-size: 0.8rem;
+        }
+
+        .chip {
+            display: inline-block;
+            border: 1px solid var(--gold);
+            color: #f6d578;
+            border-radius: 999px;
+            padding: 0.2rem 0.6rem;
+            font-size: 0.85rem;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+            align-items: end;
+        }
+
+        .actions label {
+            font-size: 0.9rem;
+            display: block;
+        }
+
+        .actions input {
+            width: 180px;
+            padding: 0.5rem;
+            border-radius: 8px;
+            border: 1px solid #9e937f;
+            margin-top: 0.2rem;
+        }
+
+        button {
+            padding: 0.6rem 0.95rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            color: white;
+            background: linear-gradient(180deg, #26624d, #1a4738);
+            font-weight: 700;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+        }
+
+        .cooldown-notice {
+            margin: 0.75rem 0 0;
+            color: #f6d578;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(255,255,255,0.9);
+            color: var(--ink);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 0.45rem;
+            border-bottom: 1px solid rgba(0,0,0,0.1);
+            vertical-align: top;
+        }
+
+        .cards {
+            display: flex;
+            gap: 0.35rem;
+            flex-wrap: wrap;
+            min-width: 135px;
+        }
+
+        .card-face {
+            width: 64px;
+            height: 89px;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(0,0,0,0.18);
+            background-color: white;
+        }
+
+        .card-face::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image: url("{% static 'images/PlayingCards.svg' %}");
+            background-size: 832px 356px;
+            background-position: var(--bg-x, 0px) var(--bg-y, 0px);
+            opacity: 0.85;
+        }
+
+        .card-face::after {
+            content: attr(data-label);
+            position: absolute;
+            right: 4px;
+            bottom: 4px;
+            background: rgba(255,255,255,0.86);
+            color: #000;
+            font-size: 0.7rem;
+            border-radius: 4px;
+            padding: 1px 3px;
+            font-weight: 700;
+        }
+
+        .messages .msg {
+            margin: 0.4rem 0;
+            padding: 0.45rem 0.6rem;
+            border-left: 4px solid var(--gold);
+            background: rgba(0,0,0,0.35);
+        }
+
+        a { color: #bde1ff; }
+
+        @media (max-width: 720px) {
+            .wrap { padding: 0.85rem; }
+            table { font-size: 0.82rem; }
+            .card-face { transform: scale(0.92); transform-origin: top left; }
+        }
+    </style>
+</head>
+<body class="theme-{{ user_theme }}">
+<div class="wrap">
+    <header>
+        <div class="header-left"><a class="logo" href="{% url 'markets' %}">DeFi Tome</a></div>
+        <div class="header-right">
+            <nav>
+                <a href="{% url 'markets' %}">Markets</a>
+                <a href="{% url 'dec_poker_lobby' %}">Casino</a>
+                <a href="{% url 'my_orders' %}">Orders</a>
+                <a href="{% url 'portfolio' %}">Portfolio</a>
+            </nav>
+        </div>
+    </header>
+    <section class="page-title">
+        <div class="badge">Public {{ instance.network_mode|upper }}</div>
+        <h1>{{ instance.title }}</h1>
+    </section>
+    <div class="panel">
+        <div class="chip">{{ instance.network_mode|upper }} | Reward {{ instance.reward_asset_name }}</div>
+        <div class="meta">
+            <div>Entry Fee: {{ instance.entry_fee_evr }} EVR</div>
+            <div>Reward Per Win: {{ instance.reward_per_win }} {{ instance.reward_asset_name }}</div>
+            <div>Vault Profile: {{ instance.vault_profile.name }}</div>
+            <div>House Rule: {{ house_rule_label }}</div>
+            <div>Wager Split: {{ treasury_split_percent }}% treasury / {{ vault_split_percent }}% vault</div>
+            <div>Hand Buffer: {{ instance.hand_cooldown_seconds }} seconds</div>
+            <div class="meta-wide"><span class="meta-label">Vault Address</span><code class="mono-value">{{ instance.vault_profile.address.address }}</code></div>
+            <div class="meta-wide"><span class="meta-label">Fairness Commitment</span><code class="mono-value">{{ instance.active_server_seed_hash }}</code></div>
+        </div>
+
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+            <div class="msg">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <form method="post" class="actions">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="play_hand">
+            <input type="hidden" name="idempotency_key" value="{{ hand_idempotency_key }}">
+            <label>Wager EVR (minimum {{ instance.entry_fee_evr }})
+                <input type="text" name="wager_evr" value="{{ instance.entry_fee_evr }}">
+            </label>
+            <label>Client Seed
+                <input type="text" name="client_seed" value="{{ request.user.username }}-seed">
+            </label>
+            <button type="submit"{% if hand_cooldown_remaining_seconds %} disabled title="Waiting for the previous hand's event reconciliation buffer"{% endif %}>Deal Hand</button>
+        </form>
+        {% if hand_cooldown_remaining_seconds %}
+        <p class="cooldown-notice">The next hand is available in {{ hand_cooldown_remaining_seconds }} seconds while the previous hand's channel event reconciles.</p>
+        {% endif %}
+    </div>
+
+    <div class="panel">
+        <h2>Payout Policy</h2>
+        <div class="meta">
+            <div>Policy Version: {{ payout_policy.version }}</div>
+            <div>Rule Version: {{ payout_policy.game_rule_version }}</div>
+            <div>Win Payout Cap: {{ payout_policy.payout_cap_amount }} {{ payout_policy.payout_currency }}</div>
+            <div>Expected Reward: {{ payout_expected_return.amount_per_wager }} {{ payout_expected_return.currency }} per hand</div>
+            <div>Percentage RTP: {% if payout_rtp.percent %}{{ payout_rtp.percent }}%{% else %}Valuation required{% endif %}</div>
+            <div class="meta-wide"><span class="meta-label">Policy Hash</span><code class="mono-value">{{ payout_policy.policy_hash }}</code></div>
+        </div>
+        <table>
+            <thead>
+            <tr>
+                <th>Outcome</th>
+                <th>Exact Odds</th>
+                <th>Probability</th>
+                <th>Payout</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for outcome in payout_outcomes %}
+            <tr>
+                <td>{{ outcome.result|upper }}</td>
+                <td>{{ outcome.probability_numerator }}/{{ outcome.probability_denominator }}</td>
+                <td>{% if outcome.probability_percent %}{{ outcome.probability_percent }}%{% else %}Unavailable{% endif %}</td>
+                <td>{{ outcome.payout_amount }} {{ payout_policy.payout_currency }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <p>{{ payout_rtp.disclosure }}</p>
+    </div>
+
+    <div class="panel">
+        <h2>Recent Hands</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>Time</th>
+                <th>Player</th>
+                <th>Player Cards</th>
+                <th>Dealer Cards</th>
+                <th>Result</th>
+                <th>Reward</th>
+                <th>Policy</th>
+                <th>Settlement</th>
+                <th>Fairness</th>
+                <th>Spend Tx</th>
+                <th>Reward Tx</th>
+                <th>Verify</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for hand in hands %}
+            <tr>
+                <td>{{ hand.created_at|date:"Y-m-d H:i:s" }}</td>
+                <td>{{ hand.player.username }}</td>
+                <td>
+                    <div class="cards">
+                        {% for card in hand.player_cards %}
+                        <div class="card-face" data-card="{{ card.rank }}{{ card.suit }}" data-label="{{ card.rank }}{{ card.suit }}"></div>
+                        {% endfor %}
+                    </div>
+                </td>
+                <td>
+                    <div class="cards">
+                        {% for card in hand.dealer_cards %}
+                        <div class="card-face" data-card="{{ card.rank }}{{ card.suit }}" data-label="{{ card.rank }}{{ card.suit }}"></div>
+                        {% endfor %}
+                    </div>
+                </td>
+                <td>{{ hand.result|upper }}</td>
+                <td>{{ hand.reward_amount }} {{ hand.reward_asset_name }}</td>
+                <td>v{{ hand.payout_policy_version }}</td>
+                <td>{{ hand.settlement_status|upper }}</td>
+                <td style="max-width: 180px; word-break: break-all;">
+                    hash={{ hand.server_seed_hash }}<br>
+                    seed={{ hand.server_seed_revealed }}<br>
+                    client={{ hand.client_seed }}<br>
+                    nonce={{ hand.fairness_nonce }}
+                </td>
+                <td style="max-width: 160px; word-break: break-all;">{{ hand.spend_txid }}</td>
+                <td style="max-width: 160px; word-break: break-all;">{{ hand.reward_txid }}</td>
+                <td><a href="{% url 'dec_poker_hand_verify' hand.id %}">Verify</a></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="12">No hands played in this instance yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+(function () {
+    const rankOrder = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const suitOrder = ["C", "D", "H", "S"];
+    const cardW = 64;
+    const cardH = 89;
+
+    function positionFor(code) {
+        const rank = code.slice(0, -1);
+        const suit = code.slice(-1);
+        const col = Math.max(0, rankOrder.indexOf(rank));
+        const row = Math.max(0, suitOrder.indexOf(suit));
+        return { x: -(col * cardW), y: -(row * cardH) };
+    }
+
+    document.querySelectorAll(".card-face[data-card]").forEach((el) => {
+        const code = String(el.getAttribute("data-card") || "").trim();
+        const pos = positionFor(code);
+        el.style.setProperty("--bg-x", `${pos.x}px`);
+        el.style.setProperty("--bg-y", `${pos.y}px`);
+    });
+})();
+</script>
+</body>
+</html>

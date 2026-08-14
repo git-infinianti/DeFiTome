@@ -1,0 +1,313 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DEC Poker Admin</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: "Trebuchet MS", "Avenir Next", sans-serif;
+            background: linear-gradient(160deg, #10261f, #17392f 50%, #225646);
+            color: #f1ecdf;
+            min-height: 100vh;
+        }
+        .wrap {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 1.5rem;
+        }
+        .panel {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1rem;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 0.55rem;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.2);
+            margin-top: 0.2rem;
+        }
+        input[type="checkbox"] {
+            width: auto;
+            margin-right: 0.4rem;
+        }
+        button {
+            background: linear-gradient(180deg, #2b7a58, #1d5a41);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 700;
+            margin-top: 0.8rem;
+        }
+        label { display:block; margin-bottom:0.5rem; }
+        .msg { background: rgba(0,0,0,0.28); border-left:4px solid #d2a12a; padding:0.6rem; margin-bottom:0.5rem; }
+        a { color: #d6ecff; }
+        .instance-card { background: rgba(255,255,255,0.06); border-radius:10px; padding:0.8rem; margin-bottom:0.75rem; }
+    </style>
+    {% include "listings/dec_theme.html" %}
+</head>
+<body class="theme-{{ user_theme }}">
+<div class="wrap">
+    <header>
+        <div class="header-left"><a class="logo" href="{% url 'markets' %}">DeFi Tome</a></div>
+        <div class="header-right">
+            <nav>
+                <a href="{% url 'markets' %}">Markets</a>
+                <a href="{% url 'dec_poker_lobby' %}">Casino</a>
+                <a href="{% url 'my_orders' %}">Orders</a>
+                <a href="{% url 'portfolio' %}">Portfolio</a>
+            </nav>
+        </div>
+    </header>
+    <section class="page-title">
+        <div class="badge">Public Testnet</div>
+        <h1>DEC Poker Admin</h1>
+        <p>Create DEC instances, inspect the shared messaging channel, and manage live instances.</p>
+    </section>
+
+    {% if messages %}
+        {% for message in messages %}
+        <div class="msg">{{ message }}</div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="grid">
+        <section class="panel">
+            <h2>Create Unified v5 Channel</h2>
+            <p>DEC, swap, and market events use the same verified v5 messaging channel.</p>
+            <form method="post">
+                {% csrf_token %}
+                <label>Root Admin Asset
+                    <select name="channel_admin_asset" required {% if not owned_admin_assets %}disabled{% endif %}>
+                        <option value="">Select an owned admin asset</option>
+                        {% for admin_asset in owned_admin_assets %}
+                        <option value="{{ admin_asset }}"{% if admin_asset == "TOME0808!" %} selected{% endif %}>{{ admin_asset }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>Channel Tag<input type="text" name="channel_tag" value="SWAPFLOWV5" required maxlength="32"></label>
+                <label>Channel Name<input type="text" name="channel_name" value="DeFiTome Unified v5 Console" maxlength="64"></label>
+                <button type="submit" name="action" value="create_shared_channel"{% if not owned_admin_assets %} disabled{% endif %}>Create Unified v5 Channel</button>
+            </form>
+        </section>
+
+        <section class="panel">
+            <h2>Create Instance</h2>
+            {% if preview %}
+            <div class="msg">
+                Estimated issue fee: {{ preview.estimated_issue_fee_evr }} EVR<br>
+                Instancing charge: {{ preview.estimated_instance_fee_evr }} EVR<br>
+                Required burn: {{ preview.required_burn_evr }} EVR<br>
+                Wager split: {{ preview.treasury_split_percent }}% treasury / {{ preview.vault_split_percent }}% vault<br>
+                Hand buffer: {{ preview.hand_cooldown_seconds }} seconds
+            </div>
+            {% endif %}
+            <form method="post">
+                {% csrf_token %}
+                <label>Shared Channel
+                    <select name="channel_policy" required {% if not channel_options %}disabled{% endif %}>
+                        {% for channel in channel_options %}
+                        <option value="{{ channel.asset_name }}">{{ channel.label }}</option>
+                        {% empty %}
+                        <option value="">Create a shared DEC channel first</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>Game Title<input type="text" name="title" required maxlength="120"></label>
+                <label>Reward Asset Name<input type="text" name="reward_asset_name" required maxlength="30"></label>
+                <label>Reward Supply
+                    <select name="reward_supply" required>
+                        {% for amount in reward_supply_choices %}<option value="{{ amount }}"{% if amount == "10000" %} selected{% endif %}>{{ amount }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label>Reward Units
+                    <select name="reward_asset_units" required>
+                        {% for units in reward_unit_choices %}<option value="{{ units }}"{% if units == 2 %} selected{% endif %}>{{ units }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label>Entry Fee (EVR)
+                    <select name="entry_fee_evr" required>
+                        {% for fee in entry_fee_choices %}<option value="{{ fee }}"{% if fee == "0.50" %} selected{% endif %}>{{ fee }} EVR</option>{% endfor %}
+                    </select>
+                </label>
+                <label>Reward Per Win
+                    <select name="reward_per_win" required>
+                        {% for reward in reward_per_win_choices %}<option value="{{ reward }}"{% if reward == "10" %} selected{% endif %}>{{ reward }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label>Hand Buffer
+                    <select name="hand_cooldown_seconds" required>
+                        {% for seconds, label in hand_cooldown_choices %}<option value="{{ seconds }}"{% if seconds == default_hand_cooldown_seconds %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <button type="submit" name="action" value="preview_instance">Preview Fees</button>
+                <button type="submit" name="action" value="create_instance"{% if not channel_options %} disabled{% endif %}>Create DEC Instance</button>
+            </form>
+        </section>
+
+        <section class="panel">
+            <h2>Shared Channel</h2>
+            {% if channel_health.active_policy %}
+            <div>Channel: {{ channel_health.active_policy.channel_name }}</div>
+            <div>Key: {{ channel_health.active_policy.channel_key }}</div>
+            <div>Version: {{ channel_health.active_policy.version }}</div>
+            <div>Metadata: {{ channel_health.active_policy.chain_metadata_status }}</div>
+            <div>Allowed stages: {{ channel_health.active_policy.allowed_stages|join:", " }}</div>
+            {% if channel_health.active_policy.chain_metadata_error %}
+            <div>Error: {{ channel_health.active_policy.chain_metadata_error }}</div>
+            {% endif %}
+            {% else %}
+            <div>No active shared DEC channel is configured on this network.</div>
+            {% endif %}
+        </section>
+
+        <section class="panel">
+            <h2>Audit Authority</h2>
+            {% if audit_authority %}
+            <div>Account: {{ audit_authority.authority_account.username }}</div>
+            <div>Address: {{ audit_authority.authority_address }}</div>
+            <div>Restricted Asset: {{ audit_authority.restricted_asset_name }}</div>
+            <div>Qualifier: {{ audit_authority.required_qualifier_name }}</div>
+            <div>Status: {{ audit_authority.status }}</div>
+            {% if audit_authority.last_verified_at %}
+            <div>Last Verified: {{ audit_authority.last_verified_at }}</div>
+            {% endif %}
+            {% if audit_authority.last_verification_error %}
+            <div>Error: {{ audit_authority.last_verification_error }}</div>
+            {% endif %}
+            {% else %}
+            <div>No restricted audit authority is configured for public testnet.</div>
+            {% endif %}
+
+            {% if can_configure_audit_authority %}
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="configure_audit_authority">
+                <label>Authority Account
+                    <select name="authority_account" required>
+                        {% for account in audit_authority_accounts %}
+                        <option value="{{ account.username }}"{% if audit_authority and account.id == audit_authority.authority_account_id %} selected{% endif %}>{{ account.username }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>Authority Address<input type="text" name="authority_address" required maxlength="128" value="{{ audit_authority.authority_address|default:'' }}"></label>
+                <label>Restricted Asset<input type="text" name="restricted_asset_name" required maxlength="30" placeholder="$DECAUDIT" value="{{ audit_authority.restricted_asset_name|default:'' }}"></label>
+                <label>Required Qualifier<input type="text" name="required_qualifier_name" required maxlength="64" placeholder="#DECAUTH" value="{{ audit_authority.required_qualifier_name|default:'' }}"></label>
+                <label>Verifier String<input type="text" name="required_verifier_string" required maxlength="255" value="{{ audit_authority.required_verifier_string|default:'' }}"></label>
+                <label>Minimum Restricted Balance<input type="number" name="minimum_restricted_asset_balance" required min="0.00000001" step="0.00000001" value="{{ audit_authority.minimum_restricted_asset_balance|default:'1' }}"></label>
+                <label><input type="checkbox" name="enforce_settlement_writes"{% if audit_authority.enforce_settlement_writes %} checked{% endif %}>Require live authority verification for payout-ledger writes</label>
+                <button type="submit">Save Audit Authority Draft</button>
+            </form>
+            {% if audit_authority %}
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="verify_audit_authority">
+                <button type="submit">Verify and Activate</button>
+            </form>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="suspend_audit_authority">
+                <button type="submit">Suspend Authority</button>
+            </form>
+            {% endif %}
+            {% endif %}
+        </section>
+    </div>
+
+    <section class="panel">
+        <h2>Manage Instances</h2>
+        {% for item in instances %}
+        <div class="instance-card">
+            <div><strong>{{ item.title }}</strong> | {{ item.reward_asset_name }} | {{ item.status }}</div>
+            <div>Vault: {{ item.vault_profile.address.address }}</div>
+            <div>Hand Buffer: {{ item.hand_cooldown_seconds }} seconds</div>
+            {% if item.profile_tag_error %}
+            <div>Provisioning: {{ item.profile_tag_error }}</div>
+            {% endif %}
+            {% if not item.is_active %}
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="resume_instance">
+                <input type="hidden" name="instance_id" value="{{ item.id }}">
+                <button type="submit">Resume Provisioning</button>
+            </form>
+            {% endif %}
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="update_instance">
+                <input type="hidden" name="instance_id" value="{{ item.id }}">
+                <label>Treasury Split
+                    <select name="wager_treasury_bps">
+                        {% for value, label in treasury_split_choices %}<option value="{{ value }}"{% if value == item.wager_treasury_bps %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label>Hand Buffer
+                    <select name="hand_cooldown_seconds">
+                        {% for seconds, label in hand_cooldown_choices %}<option value="{{ seconds }}"{% if seconds == item.hand_cooldown_seconds %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label>Status
+                    {% if item.status == "active" %}
+                    <select disabled><option selected>Active (verified provisioning)</option></select>
+                    {% elif item.status == "pending" %}
+                    <select disabled><option selected>Pending provisioning</option></select>
+                    {% elif item.status == "failed" %}
+                    <select disabled><option selected>Failed provisioning</option></select>
+                    {% else %}
+                    <select name="status">
+                        {% for value, label in status_choices %}<option value="{{ value }}"{% if value == item.status %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                    </select>
+                    {% endif %}
+                </label>
+                <button type="submit">Update Instance</button>
+            </form>
+            <section>
+                <h3>DEX Valuation</h3>
+                {% if item.valuation_pair %}
+                <div>Pair: {{ item.valuation_pair.base_token }}/{{ item.valuation_pair.quote_token }}</div>
+                {% else %}
+                <div>Pair: created when the first valuation bid is posted.</div>
+                {% endif %}
+                {% if item.latest_valuation_bid %}
+                <div>Latest Bid: {{ item.latest_valuation_bid.reward_asset_quantity }} {{ item.reward_asset_name }} at {{ item.latest_valuation_bid.price_evr_per_reward_asset }} EVR | {{ item.latest_valuation_bid.limit_order.status }}</div>
+                {% endif %}
+                {% if item.latest_market_valuation %}
+                <div>Latest Execution VWAP: {{ item.latest_market_valuation.price_evr_per_reward_asset }} EVR | RTP {{ item.latest_market_valuation.rtp_percent }}%</div>
+                {% endif %}
+                {% if audit_authority and audit_authority.status == "active" and audit_authority.authority_account_id == item.manager_account_id %}
+                {% if audit_authority.authority_account_id == user.id or user.is_superuser %}
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="create_valuation_bid">
+                    <input type="hidden" name="instance_id" value="{{ item.id }}">
+                    <label>Bid Price (EVR per {{ item.reward_asset_name }})<input type="number" name="price_evr_per_reward_asset" required min="0.00000001" step="0.00000001"></label>
+                    <label>Bid Quantity ({{ item.reward_asset_name }})<input type="number" name="reward_asset_quantity" required min="0.00000001" step="0.00000001"></label>
+                    <button type="submit">Post Valuation Bid</button>
+                </form>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="publish_market_valuation">
+                    <input type="hidden" name="instance_id" value="{{ item.id }}">
+                    <button type="submit">Publish Execution Valuation</button>
+                </form>
+                {% endif %}
+                {% endif %}
+            </section>
+        </div>
+        {% empty %}
+        <div>No DEC instances found on this network.</div>
+        {% endfor %}
+    </section>
+</div>
+</body>
+</html>
