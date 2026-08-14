@@ -37,6 +37,7 @@ from API.channel_console_service import (
     burn_channel_asset_for_revision,
     create_channel_console_asset_for_user,
     set_channel_subscription,
+    validate_channel_console_asset,
 )
 
 
@@ -1629,6 +1630,43 @@ class ChannelConsoleServiceTestCase(TestCase):
         self.assertEqual(result['txid'], 'v5-issue-txid')
         mock_issue_asset.assert_not_called()
 
+    @patch('API.channel_console_service.create_and_send_issue_asset_transaction')
+    @patch('API.channel_console_service.KuboAPIUploader.upload_bytes')
+    @patch('API.channel_console_service.evrmore_rpc.get_asset_data', return_value=None)
+    def test_pending_unified_v5_draft_is_not_issued_twice_before_rpc_confirmation(
+        self,
+        _mock_asset_data,
+        mock_upload_bytes,
+        mock_issue_asset,
+    ):
+        MessageChannelPolicy.objects.create(
+            channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+            channel_name='TOME0808~SWAPFLOWV5',
+            network_mode='testnet',
+            version=UNIFIED_WORKFLOW_POLICY_VERSION,
+            status='draft',
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=list(DEFAULT_ALLOWED_STAGES),
+            strict_rules=dict(UNIFIED_WORKFLOW_STRICT_RULES),
+            metadata_ipfs_cid='QmUnifiedV5Metadata',
+            issuance_txid='v5-issue-txid',
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING,
+        )
+
+        result = create_channel_console_asset_for_user(self.user, {
+            'admin_asset': 'TOME0808!',
+            'channel_tag': UNIFIED_WORKFLOW_CHANNEL_TAG,
+            'channel_key': UNIFIED_WORKFLOW_CHANNEL_KEY,
+            'channel_version': UNIFIED_WORKFLOW_POLICY_VERSION,
+            'network_mode': 'testnet',
+        })
+
+        self.assertTrue(result['issuance_pending'])
+        self.assertEqual(result['txid'], 'v5-issue-txid')
+        mock_upload_bytes.assert_not_called()
+        mock_issue_asset.assert_not_called()
+
     @patch('API.channel_console_service.KuboAPIUploader.download_json')
     @patch('API.channel_console_service.evrmore_rpc.get_asset_data', return_value={'ipfs_hash': 'QmUnifiedV5Metadata'})
     def test_bootstrap_promotes_only_verified_unified_v5_policy(
@@ -1689,6 +1727,88 @@ class ChannelConsoleServiceTestCase(TestCase):
                 auto_broadcast=True,
                 stdout=StringIO(),
             )
+
+    @patch('API.channel_console_service.KuboAPIUploader.download_json')
+    @patch('API.channel_console_service.evrmore_rpc.get_asset_data', return_value={'ipfs_hash': 'QmUnifiedV5Metadata'})
+    def test_unified_v5_metadata_rejections_leave_v5_pending(
+        self,
+        _mock_asset_data,
+        mock_download_json,
+    ):
+        v4 = MessageChannelPolicy.objects.create(
+            channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+            channel_name='TOME0808~SWAPFLOWV4',
+            network_mode='testnet',
+            version=4,
+            status='active',
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=list(DEFAULT_ALLOWED_STAGES),
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
+        )
+        v5 = MessageChannelPolicy.objects.create(
+            channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+            channel_name='TOME0808~SWAPFLOWV5',
+            network_mode='testnet',
+            version=UNIFIED_WORKFLOW_POLICY_VERSION,
+            status='draft',
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=list(DEFAULT_ALLOWED_STAGES),
+            strict_rules=dict(UNIFIED_WORKFLOW_STRICT_RULES),
+            metadata_ipfs_cid='QmUnifiedV5Metadata',
+            issuance_txid='a' * 64,
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING,
+        )
+        missing_rule = dict(UNIFIED_WORKFLOW_STRICT_RULES)
+        missing_rule.pop('reconciliation_fail_closed')
+        cases = (
+            (
+                'TOME0808~WRONGTAG',
+                list(DEFAULT_ALLOWED_STAGES),
+                dict(UNIFIED_WORKFLOW_STRICT_RULES),
+                'must use asset tag',
+            ),
+            (
+                'TOME0808~SWAPFLOWV5',
+                list(DEFAULT_ALLOWED_STAGES[:-1]),
+                dict(UNIFIED_WORKFLOW_STRICT_RULES),
+                'complete lifecycle stage set',
+            ),
+            (
+                'TOME0808~SWAPFLOWV5',
+                list(DEFAULT_ALLOWED_STAGES),
+                missing_rule,
+                "requires strict rule 'reconciliation_fail_closed'",
+            ),
+        )
+
+        for asset_name, allowed_stages, strict_rules, expected_error in cases:
+            with self.subTest(asset_name=asset_name, expected_error=expected_error):
+                v5.channel_name = asset_name
+                v5.save(update_fields=['channel_name', 'updated_at'])
+                mock_download_json.return_value = {
+                    'schema': 'defitome.messaging-channel-console',
+                    'version': 1,
+                    'asset_name': asset_name,
+                    'channel_key': UNIFIED_WORKFLOW_CHANNEL_KEY,
+                    'channel_name': 'DeFiTome Unified v5 Console',
+                    'allowed_stages': allowed_stages,
+                    'strict_rules': strict_rules,
+                    'console_type': 'defitome_workflow_event',
+                }
+
+                with self.assertRaisesMessage(ValueError, expected_error):
+                    validate_channel_console_asset(asset_name, network_mode='testnet')
+
+                v4.refresh_from_db()
+                v5.refresh_from_db()
+                self.assertEqual(v4.status, 'active')
+                self.assertEqual(v5.status, 'draft')
+                self.assertEqual(
+                    v5.chain_metadata_status,
+                    MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING,
+                )
 
     @patch('API.channel_console_service.KuboAPIUploader.download_json')
     @patch('API.channel_console_service.evrmore_rpc.get_asset_data')

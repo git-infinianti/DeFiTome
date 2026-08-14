@@ -1437,6 +1437,24 @@ def messaging_channel_management(request):
 
         try:
             creation_result = create_channel_console_asset_for_user(request.user, payload)
+            if creation_result.get('existing_issuance'):
+                if creation_result.get('issuance_pending'):
+                    messages.info(
+                        request,
+                        (
+                            f"Channel asset {creation_result['channel_asset_name']} already has an issuance transaction "
+                            'and is awaiting on-chain metadata verification.'
+                        ),
+                    )
+                else:
+                    messages.info(
+                        request,
+                        (
+                            f"Channel asset {creation_result['channel_asset_name']} already has a recorded issuance "
+                            'and remains a draft until its metadata state is resolved.'
+                        ),
+                    )
+                return redirect('messaging_channel_management')
             if creation_result.get('asset_already_exists'):
                 messages.info(
                     request,

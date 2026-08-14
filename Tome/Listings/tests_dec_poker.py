@@ -12,6 +12,11 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from API.channel_console_lib import DEFAULT_ALLOWED_STAGES
+from API.unified_workflow_policy import (
+    UNIFIED_WORKFLOW_CHANNEL_KEY,
+    UNIFIED_WORKFLOW_CHANNEL_TAG,
+    UNIFIED_WORKFLOW_POLICY_VERSION,
+)
 
 from API.models import MessageChannelPolicy
 from Listings.models import (
@@ -40,6 +45,7 @@ from Listings.dec_service import (
     broadcast_dec_stage,
     create_dec_poker_valuation_bid,
     create_dec_poker_instance,
+    ensure_shared_dec_channel,
     ensure_dec_poker_payout_policy,
     play_dec_poker_hand,
     publish_dec_poker_market_valuation,
@@ -98,6 +104,133 @@ class DecPokerAdminControlTests(TestCase):
         self.assertContains(response, 'select name="channel_admin_asset"')
         self.assertContains(response, 'select name="hand_cooldown_seconds"')
         self.assertContains(response, "TOME0808~DECPOKER")
+
+    @patch("Listings.dec_views.get_owned_admin_assets", return_value=[])
+    @patch("Listings.dec_views.create_dec_poker_instance")
+    @patch(
+        "Listings.dec_views.ensure_shared_dec_channel",
+        return_value={
+            "created": True,
+            "channel_name": "TOME0808~SWAPFLOWV5",
+            "chain_metadata_status": MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING,
+        },
+    )
+    def test_instance_creation_reports_pending_unified_v5_verification(
+        self,
+        _mock_channel_creation,
+        mock_create_instance,
+        _mock_admin_assets,
+    ):
+        user = get_user_model().objects.create_user(
+            username="dec-pending-channel-admin",
+            password="test-password",
+            is_staff=True,
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("dec_poker_admin"),
+            {
+                "action": "create_instance",
+                "channel_admin_asset": "TOME0808!",
+                "channel_tag": UNIFIED_WORKFLOW_CHANNEL_TAG,
+                "title": "Pending Channel Table",
+                "reward_asset_name": "PENDINGDEC",
+                "reward_supply": "1000",
+                "reward_per_win": "10",
+                "entry_fee_evr": "0.5",
+                "reward_asset_units": "2",
+                "hand_cooldown_seconds": "30",
+            },
+            follow=True,
+        )
+
+        self.assertContains(
+            response,
+            "The unified v5 channel is awaiting public-testnet metadata verification before instancing can begin.",
+        )
+        mock_create_instance.assert_not_called()
+
+
+class DecPokerChannelPolicyTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="dec-channel-policy-admin",
+            password="test-password",
+            is_staff=True,
+        )
+
+    @patch("Listings.dec_service.validate_channel_console_asset", side_effect=ValueError("asset not yet confirmed"))
+    @patch(
+        "Listings.dec_service.create_channel_console_asset_for_user",
+        return_value={
+            "channel_asset_name": "TOME0808~SWAPFLOWV5",
+            "txid": "v5-issuance-txid",
+            "issuance_pending": True,
+            "existing_issuance": True,
+        },
+    )
+    def test_pending_unified_v5_channel_does_not_fall_back_to_active_v4(
+        self,
+        _mock_channel_creation,
+        _mock_validation,
+    ):
+        v4 = MessageChannelPolicy.objects.create(
+            channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+            channel_name="TOME0808~SWAPFLOWV4",
+            network_mode="testnet",
+            version=4,
+            status="active",
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=list(DEFAULT_ALLOWED_STAGES),
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_VERIFIED,
+        )
+        v5 = MessageChannelPolicy.objects.create(
+            channel_key=UNIFIED_WORKFLOW_CHANNEL_KEY,
+            channel_name="TOME0808~SWAPFLOWV5",
+            network_mode="testnet",
+            version=UNIFIED_WORKFLOW_POLICY_VERSION,
+            status="draft",
+            owner_account=self.user,
+            manager_account=self.user,
+            allowed_stages=list(DEFAULT_ALLOWED_STAGES),
+            issuance_txid="v5-issuance-txid",
+            chain_metadata_status=MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING,
+        )
+
+        result = ensure_shared_dec_channel(self.user, {
+            "network_mode": "testnet",
+            "channel_admin_asset": "TOME0808!",
+            "channel_tag": UNIFIED_WORKFLOW_CHANNEL_TAG,
+        })
+
+        v4.refresh_from_db()
+        v5.refresh_from_db()
+        self.assertFalse(result["created"])
+        self.assertEqual(result["policy"].pk, v5.pk)
+        self.assertEqual(result["channel_name"], "TOME0808~SWAPFLOWV5")
+        self.assertEqual(
+            result["chain_metadata_status"],
+            MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING,
+        )
+        self.assertEqual(v4.status, "active")
+        self.assertEqual(v5.status, "draft")
+
+        with self.assertRaisesMessage(
+            ValueError,
+            "A verified shared DEC messaging channel must cover every game lifecycle stage",
+        ):
+            create_dec_poker_instance(self.user, {
+                "network_mode": "testnet",
+                "title": "Pending Channel Table",
+                "reward_asset_name": "PENDINGDEC",
+                "reward_supply": "1000",
+                "reward_per_win": "10",
+                "entry_fee_evr": "0.5",
+                "reward_asset_units": "2",
+                "hand_cooldown_seconds": "30",
+            })
 
 
 class DecPokerDisplayTests(TestCase):

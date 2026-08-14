@@ -1319,7 +1319,7 @@ def ensure_shared_dec_channel(user, payload):
         raise ValueError("Unable to create the shared DEC v5 channel policy.")
     _refresh_dec_channel_policy(policy)
     return {
-        "created": True,
+        "created": not bool(creation.get("existing_issuance")),
         "policy": policy,
         "txid": str(creation.get("txid") or ""),
         "channel_name": str(creation.get("channel_asset_name") or ""),

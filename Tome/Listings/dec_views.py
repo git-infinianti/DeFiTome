@@ -372,15 +372,30 @@ def dec_poker_admin(request):
                     "channel_name": request.POST.get("channel_name"),
                 })
                 if channel_result["created"]:
-                    messages.success(
+                    if channel_result["chain_metadata_status"] == MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING:
+                        messages.info(
+                            request,
+                            (
+                                f"Submitted shared DEC channel {channel_result['channel_name']}; "
+                                "the unified v5 channel is awaiting public-testnet metadata verification."
+                            ),
+                        )
+                    else:
+                        messages.success(
+                            request,
+                            (
+                                f"Created shared DEC channel {channel_result['channel_name']} "
+                                f"with metadata status {channel_result['chain_metadata_status']}."
+                            ),
+                        )
+                else:
+                    messages.info(
                         request,
                         (
-                            f"Created shared DEC channel {channel_result['channel_name']} "
-                            f"with metadata status {channel_result['chain_metadata_status']}."
+                            f"Shared DEC channel {channel_result['channel_name']} already has a recorded issuance; "
+                            f"metadata status is {channel_result['chain_metadata_status']}."
                         ),
                     )
-                else:
-                    messages.info(request, f"Shared DEC channel already exists as {channel_result['channel_name']}.")
             except Exception as exc:
                 messages.error(request, f"Unable to create shared DEC channel: {exc}")
             return redirect("dec_poker_admin")

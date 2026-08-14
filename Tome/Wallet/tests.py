@@ -1206,6 +1206,42 @@ class MessagingChannelManagementViewTests(TestCase):
         sent_payload = mock_create_channel.call_args.args[1]
         self.assertNotIn('qty', sent_payload)
 
+    @patch('Wallet.views._get_stored_admin_assets', return_value=['TOME0808!'])
+    @patch('Wallet.views.scan_channel_console_assets', return_value={'valid_channels': [], 'invalid_channels': []})
+    @patch('Wallet.views.create_channel_console_asset_for_user')
+    def test_admin_sees_pending_message_for_reused_channel_issuance(
+        self,
+        mock_create_channel,
+        _mock_scan,
+        _mock_admin_assets,
+    ):
+        mock_create_channel.return_value = {
+            'channel_asset_name': 'TOME0808~SWAPFLOWV5',
+            'txid': 'v5-issuance-txid',
+            'existing_issuance': True,
+            'issuance_pending': True,
+        }
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('messaging_channel_management'), {
+            'admin_asset': 'TOME0808!',
+            'channel_tag': 'SWAPFLOWV5',
+            'channel_key': 'tome0808_swapflow',
+            'channel_name': 'DeFiTome Unified v5 Console',
+            'channel_version': '5',
+            'network_mode': 'testnet',
+            'description': 'Unified v5 channel',
+            'allowed_stages': 'offer_created',
+            'immutable_payload': 'on',
+        }, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            'Channel asset TOME0808~SWAPFLOWV5 already has an issuance transaction and is awaiting on-chain metadata verification.',
+        )
+        self.assertNotContains(response, 'Created channel TOME0808~SWAPFLOWV5 with policy version 5')
+
     @patch('Wallet.views._get_stored_admin_assets', return_value=['ROOT!'])
     @patch('Wallet.views.scan_channel_console_assets', return_value={'valid_channels': [], 'invalid_channels': []})
     def test_admin_can_deprecate_managed_policy(self, _mock_scan, _mock_admin_assets):

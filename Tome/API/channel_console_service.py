@@ -362,6 +362,25 @@ def _create_channel_console_asset_for_user(user, data, network_mode):
         )
 
     is_unified_workflow_v5 = _is_unified_workflow_v5(channel_key, policy_version)
+    if existing_draft is not None and str(existing_draft.issuance_txid or '').strip():
+        return {
+            'channel_asset_name': channel_asset_name,
+            'metadata_ipfs_cid': str(existing_draft.metadata_ipfs_cid or ''),
+            'txid': str(existing_draft.issuance_txid),
+            'channel_policy': {
+                'channel_key': existing_draft.channel_key,
+                'version': existing_draft.version,
+                'rules_checksum': existing_draft.rules_checksum,
+            },
+            'owned_addresses': get_user_wallet_addresses(user, network_mode=network_mode),
+            'asset_already_exists': False,
+                'issuance_pending': (
+                    existing_draft.chain_metadata_status
+                    == MessageChannelPolicy.CHAIN_METADATA_STATUS_PENDING
+                ),
+                'existing_issuance': True,
+        }
+
     metadata = data.get('metadata') or {}
     if is_unified_workflow_v5:
         metadata = _build_unified_workflow_v5_metadata(channel_tag, metadata)
@@ -494,6 +513,8 @@ def _create_channel_console_asset_for_user(user, data, network_mode):
         },
         'owned_addresses': owned_addresses,
         'asset_already_exists': asset_already_exists,
+        'issuance_pending': False,
+        'existing_issuance': False,
     }
 
 
