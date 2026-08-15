@@ -95,7 +95,12 @@ DATABASES = {
 
 DEFAULT_FILE_STORAGE = 'ipfs_storage.InterPlanetaryFileSystemStorage'
 IPFS_STORAGE_API_URL = config('IPFS_STORAGE_API_URL', default='http://localhost:5001/api/v0/')
-IPFS_GATEWAY_API_URL = config('IPFS_GATEWAY_API_URL', default='http://localhost:8080/ipfs/')    
+IPFS_GATEWAY_API_URL = config('IPFS_GATEWAY_API_URL', default='http://localhost:8080/ipfs/')
+IPFS_PUBLIC_GATEWAY_URLS = [
+    url.strip()
+    for url in config('IPFS_PUBLIC_GATEWAY_URLS', default='https://ipfs.io/ipfs/').split(',')
+    if url.strip()
+]
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators

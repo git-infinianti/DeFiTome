@@ -207,7 +207,7 @@ class ChannelHistoryIngestionTests(TestCase):
             'API.channel_reconciliation.evrmore_rpc.get_block'
         )
         self.mock_download_json = self._start_patch(
-            'API.channel_reconciliation.KuboAPIUploader.download_json'
+            'API.channel_reconciliation.PublicIPFSGatewayResolver.download_json'
         )
         self.mock_transaction_evidence = self._start_patch(
             'API.channel_reconciliation.get_public_transaction_evidence'

@@ -171,3 +171,45 @@ class KuboAPIUploader:
                 continue
 
         raise ValueError(f"Unable to parse Kubo add response: {response_text}")
+
+
+class PublicIPFSGatewayResolver:
+    """Bounded, read-only resolver that falls back across configured public gateways."""
+
+    def __init__(self, gateway_urls=None, timeout: float = 30.0):
+        configured_urls = gateway_urls or getattr(settings, 'IPFS_PUBLIC_GATEWAY_URLS', [])
+        self.gateway_urls = [str(url).strip().rstrip('/') + '/' for url in configured_urls if str(url).strip()]
+        if not self.gateway_urls:
+            raise ValueError('At least one public IPFS gateway URL must be configured.')
+        self.timeout = timeout
+
+    def download_bytes(self, cid: str, *, max_bytes: int = 1_048_576) -> bytes:
+        normalized_cid = KuboAPIUploader._normalize_cid(cid)
+        if max_bytes <= 0:
+            raise ValueError('max_bytes must be greater than zero.')
+
+        failures = []
+        for gateway_url in self.gateway_urls:
+            content = bytearray()
+            try:
+                with httpx.Client(timeout=self.timeout, follow_redirects=True) as client:
+                    with client.stream('GET', f'{gateway_url}{normalized_cid}') as response:
+                        response.raise_for_status()
+                        for chunk in response.iter_bytes():
+                            content.extend(chunk)
+                            if len(content) > max_bytes:
+                                raise ValueError(f'IPFS content exceeds the {max_bytes}-byte limit.')
+                return bytes(content)
+            except (httpx.HTTPError, ValueError) as exc:
+                failures.append(f'{gateway_url}: {exc}')
+        raise ValueError(f'IPFS payload could not be resolved from configured gateways: {failures}')
+
+    def download_json(self, cid: str, *, max_bytes: int = 1_048_576) -> dict:
+        content = self.download_bytes(cid, max_bytes=max_bytes)
+        try:
+            payload = json.loads(content.decode('utf-8'))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError('IPFS gateway content is not valid UTF-8 JSON.') from exc
+        if not isinstance(payload, dict):
+            raise ValueError('IPFS gateway payload must be a JSON object.')
+        return payload

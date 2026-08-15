@@ -516,6 +516,14 @@ class DecPokerAuditAuthority(models.Model):
 
 
 class DecPokerGameInstance(models.Model):
+    RECONCILIATION_STATUS_PENDING = 'pending'
+    RECONCILIATION_STATUS_SYNCED = 'synced'
+    RECONCILIATION_STATUS_REJECTED = 'rejected'
+    RECONCILIATION_STATUS_CHOICES = [
+        (RECONCILIATION_STATUS_PENDING, 'Pending'),
+        (RECONCILIATION_STATUS_SYNCED, 'Synced'),
+        (RECONCILIATION_STATUS_REJECTED, 'Rejected'),
+    ]
     STATUS_PENDING = 'pending'
     STATUS_ACTIVE = 'active'
     STATUS_PAUSED = 'paused'
@@ -580,6 +588,14 @@ class DecPokerGameInstance(models.Model):
     )
     next_hand_nonce = models.PositiveIntegerField(default=1)
 
+    reconciliation_status = models.CharField(
+        max_length=16,
+        choices=RECONCILIATION_STATUS_CHOICES,
+        default=RECONCILIATION_STATUS_PENDING,
+        db_index=True,
+    )
+    reconciliation_error = models.TextField(blank=True, default='')
+    reconciliation_evidence = models.JSONField(default=dict)
     status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_PENDING)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -768,6 +784,14 @@ class DecPokerValuationBid(models.Model):
 
 
 class DecPokerHand(models.Model):
+    RECONCILIATION_STATUS_PENDING = 'pending'
+    RECONCILIATION_STATUS_SYNCED = 'synced'
+    RECONCILIATION_STATUS_REJECTED = 'rejected'
+    RECONCILIATION_STATUS_CHOICES = [
+        (RECONCILIATION_STATUS_PENDING, 'Pending'),
+        (RECONCILIATION_STATUS_SYNCED, 'Synced'),
+        (RECONCILIATION_STATUS_REJECTED, 'Rejected'),
+    ]
     RESULT_WIN = 'win'
     RESULT_LOSE = 'lose'
     RESULT_PUSH = 'push'
@@ -833,6 +857,14 @@ class DecPokerHand(models.Model):
     fairness_nonce = models.PositiveIntegerField(default=1)
     fairness_digest = models.CharField(max_length=64, blank=True, default='')
 
+    reconciliation_status = models.CharField(
+        max_length=16,
+        choices=RECONCILIATION_STATUS_CHOICES,
+        default=RECONCILIATION_STATUS_PENDING,
+        db_index=True,
+    )
+    reconciliation_error = models.TextField(blank=True, default='')
+    reconciliation_evidence = models.JSONField(default=dict)
     spend_txid = models.CharField(max_length=100, blank=True, default='')
     reward_txid = models.CharField(max_length=100, blank=True, default='')
     spend_message_txid = models.CharField(max_length=100, blank=True, default='')

@@ -2262,6 +2262,8 @@ def _normalize_dec_poker_idempotency_key(idempotency_key):
 
 
 def play_dec_poker_hand(player, instance, wager_evr=None, client_seed=None, idempotency_key=None):
+    if instance.reconciliation_status == DecPokerGameInstance.RECONCILIATION_STATUS_REJECTED:
+        raise ValueError("This game instance was rejected during channel reconciliation.")
     if not instance.is_active or instance.status != DecPokerGameInstance.STATUS_ACTIVE:
         raise ValueError("This game instance is not active.")
     if not instance.profile_tag_asset_name or not instance.profile_tag_txid:

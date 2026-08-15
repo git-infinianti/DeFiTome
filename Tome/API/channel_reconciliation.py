@@ -11,7 +11,7 @@ from django.utils import timezone
 from API.channel_event_protocol import validate_channel_event_payload
 from API.models import ChannelEvent, ChannelReconciliationIssue, MessageChannelPolicy
 from API.rpc import evrmore_rpc
-from Media.kubo_api import KuboAPIUploader
+from Media.kubo_api import PublicIPFSGatewayResolver
 from Tome.rpc_client import using_network_mode
 from Wallet.rpc import get_public_transaction_evidence
 
@@ -360,7 +360,7 @@ def ingest_channel_history(policy):
         report['observed'] += 1
         payload = None
         try:
-            payload = KuboAPIUploader().download_json(observation.payload_ipfs_cid)
+            payload = PublicIPFSGatewayResolver().download_json(observation.payload_ipfs_cid)
             validate_channel_event_payload(payload, policy.allowed_stages)
             if payload['network_mode'] != policy.network_mode:
                 raise ValueError('Channel event network does not match its policy.')
